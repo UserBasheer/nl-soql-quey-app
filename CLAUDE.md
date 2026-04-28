@@ -56,14 +56,21 @@ User must explicitly say "skip [agent name]". Default is always full workflow.
 
 ```
 API Version:      66.0
-Field prefix:     [your org-specific prefix e.g. WORK_ or leave blank]
+Field prefix:     (none — no namespace)
 Package dir:      force-app/main/default
 Trigger pattern:  one trigger per object → handler class
 Deployment:       Salesforce MCP only (no sf/sfdx CLI for deploys)
 Docs location:    docs/
 Agent output:     agent-output/
 Branch file:      agent-output/current-branch.md
+Design patterns:  docs/design-patterns/[ClassName]-patterns.md
 ```
+
+## Design pattern analysis — required
+
+Every Apex class gets a companion `docs/design-patterns/[ClassName]-patterns.md` file.
+The developer agent writes this alongside each class.
+Format: patterns evaluated table + why chosen + trade-offs + Apex constraints.
 
 ---
 
