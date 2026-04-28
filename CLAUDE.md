@@ -64,6 +64,8 @@ Docs location:    docs/
 Agent output:     agent-output/
 Branch file:      agent-output/current-branch.md
 Design patterns:  docs/design-patterns/[ClassName]-patterns.md
+GitHub repo:      https://github.com/UserBasheer/nl-soql-quey-app.git
+PR base URL:      https://github.com/UserBasheer/nl-soql-quey-app/compare/
 ```
 
 ## Design pattern analysis — required

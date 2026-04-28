@@ -85,7 +85,7 @@ git push -u origin [branch-from-current-branch.md]
 Show user:
 ```
 Code committed and pushed to: [branch name]
-PR: https://github.com/[repo]/compare/[branch]
+PR: https://github.com/UserBasheer/nl-soql-quey-app/compare/[branch]
 ```
 
 ---
