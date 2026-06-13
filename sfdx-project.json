@@ -5,8 +5,9 @@
       "default": true
     }
   ],
-  "name": "NL-SOQL",
+  "name": "NL-SOQL query app",
   "namespace": "",
   "sfdcLoginUrl": "https://login.salesforce.com",
-  "sourceApiVersion": "66.0"
+  "sourceApiVersion": "66.0",
+  "defaultLwcLanguage": "javascript"
 }

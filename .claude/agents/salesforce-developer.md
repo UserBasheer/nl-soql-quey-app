@@ -99,9 +99,64 @@ PR: https://github.com/[repo]/compare/[branch]
 
 ---
 
+## Design pattern analysis — mandatory for every Apex class
+
+For EVERY Apex class written, produce a design pattern analysis document at:
+`docs/design-patterns/[ClassName]-patterns.md`
+
+Structure:
+
+```markdown
+# [ClassName] — Design Pattern Analysis
+
+## Pattern chosen: [Pattern Name]
+
+## Patterns evaluated
+
+| Pattern | Fit | Reason rejected / accepted |
+|---------|-----|---------------------------|
+| [Pattern A] | Rejected | [reason] |
+| [Pattern B] | Rejected | [reason] |
+| [Pattern C] | **Selected** | [reason] |
+
+## Why [chosen pattern]
+
+[2-3 sentences on why this pattern fits the class's responsibility]
+
+## Trade-offs
+
+| Pro | Con |
+|-----|-----|
+| [pro] | [con] |
+
+## Apex-specific constraints that influenced this decision
+
+[governor limits, callout restrictions, sharing model, etc.]
+```
+
+Patterns to evaluate (pick from these, add others if relevant):
+- **Service Layer** — stateless, orchestrates business logic
+- **Repository / Selector** — encapsulates SOQL, returns SObjects
+- **Facade** — simplifies complex subsystem for callers
+- **Strategy** — swappable algorithms (e.g. different Claude models)
+- **Template Method** — base behavior with override hooks
+- **Factory** — object creation abstraction
+- **Singleton** — single instance (use with caution in Apex — transaction-scoped)
+- **Observer / Event-driven** — Platform Events, change data capture
+- **Decorator** — add behavior without changing interface
+- **Command** — encapsulate request as object (useful for retry logic)
+
+Commit the pattern docs alongside the class:
+```bash
+git add docs/design-patterns/
+git commit -m "docs: add design pattern analysis for [ClassName]"
+```
+
+---
+
 ## Boundaries
 
-You handle: writing Apex/LWC/triggers, committing to branch, pushing branch.
+You handle: writing Apex/LWC/triggers, committing to branch, pushing branch, producing design pattern analysis docs.
 
 You do NOT handle: creating branch (design agent does this), deploying to org, merging PRs, declarative config.
 

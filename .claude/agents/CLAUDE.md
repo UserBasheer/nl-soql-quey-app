@@ -55,8 +55,8 @@ User must explicitly say "skip [agent name]". Default is always full workflow.
 ## Project conventions
 
 ```
-API Version:      66.0
-Field prefix:     NL-SOQL
+API Version:      [fill from sfdx-project.json]
+Field prefix:     [your org-specific prefix e.g. WORK_ or leave blank]
 Package dir:      force-app/main/default
 Trigger pattern:  one trigger per object → handler class
 Deployment:       Salesforce MCP only (no sf/sfdx CLI for deploys)
