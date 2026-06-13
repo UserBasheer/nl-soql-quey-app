@@ -19,8 +19,19 @@ public with sharing class TranslationProviderFactory {
     }
 
     private static String resolveConfiguredProvider() {
-        // Phase 1: read from a custom metadata type, e.g. SOQL_Whisperer_Setting__mdt.Provider__c.
-        // Stubbed to 'Claude' as the safe default for orgs without Einstein.
+        // Read the admin-configurable provider flag from custom metadata.
+        // Prefer the 'Default' record; fall back to any available record.
+        // Default to 'Claude' when no record exists or Provider__c is blank.
+        Map<String, SOQL_Whisperer_Setting__mdt> settings = SOQL_Whisperer_Setting__mdt.getAll();
+
+        SOQL_Whisperer_Setting__mdt setting = settings.get('Default');
+        if (setting == null && !settings.isEmpty()) {
+            setting = settings.values()[0];
+        }
+
+        if (setting != null && String.isNotBlank(setting.Provider__c)) {
+            return setting.Provider__c;
+        }
         return 'Claude';
     }
 }
