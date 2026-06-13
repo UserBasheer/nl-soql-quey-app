@@ -1,0 +1,66 @@
+<template>
+    <lightning-card title="SOQL Whisperer" icon-name="utility:search">
+        <div class="slds-p-horizontal_medium slds-p-bottom_medium">
+
+            <!-- NL input -->
+            <lightning-textarea
+                name="nl"
+                label="Ask a question — or refine the current query"
+                value={naturalLanguage}
+                onchange={handleNlChange}
+                placeholder="e.g. Show me accounts in California created in the last 30 days">
+            </lightning-textarea>
+
+            <div class="slds-m-top_small">
+                <lightning-button variant="brand" label="Generate SOQL"
+                    onclick={handleGenerate} disabled={isBusy}></lightning-button>
+                <lightning-button class="slds-m-left_x-small" label="Refine"
+                    onclick={handleRefine} disabled={isBusy}></lightning-button>
+                <lightning-button class="slds-m-left_x-small" label="Clear"
+                    onclick={handleClear}></lightning-button>
+            </div>
+
+            <!-- SOQL panel -->
+            <lightning-textarea
+                class="slds-m-top_medium soql-box"
+                name="soql"
+                label="Generated SOQL (editable)"
+                value={soql}
+                onchange={handleSoqlChange}>
+            </lightning-textarea>
+
+            <template if:true={assumption}>
+                <div class="slds-box slds-box_xx-small slds-m-top_x-small slds-theme_warning">
+                    {assumption}
+                </div>
+            </template>
+
+            <template if:true={validationMessage}>
+                <div class={validationClass}>{validationMessage}</div>
+            </template>
+
+            <div class="slds-m-top_small">
+                <lightning-button variant="brand" label="Run Query"
+                    onclick={handleRun} disabled={isBusy}></lightning-button>
+                <lightning-button class="slds-m-left_x-small" label="Validate Only"
+                    onclick={handleValidate}></lightning-button>
+            </div>
+
+            <!-- Results -->
+            <template if:true={hasResults}>
+                <div class="slds-m-top_medium">
+                    <lightning-datatable
+                        key-field="Id"
+                        data={resultRows}
+                        columns={resultColumns}
+                        hide-checkbox-column="true">
+                    </lightning-datatable>
+                </div>
+            </template>
+
+            <template if:true={isBusy}>
+                <lightning-spinner alternative-text="Working" size="small"></lightning-spinner>
+            </template>
+        </div>
+    </lightning-card>
+</template>

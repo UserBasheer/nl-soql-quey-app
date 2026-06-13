@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>ApiKey__c</fullName>
+    <label>API Key</label>
+    <length>255</length>
+    <type>Text</type>
+    <description>Anthropic Claude API key (x-api-key header value). Set via Setup &gt; Custom Settings, not source.</description>
+</CustomField>
