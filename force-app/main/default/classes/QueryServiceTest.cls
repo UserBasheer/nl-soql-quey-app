@@ -37,4 +37,35 @@ private class QueryServiceTest {
             System.assert(true);
         }
     }
+
+    @isTest
+    static void runQueryRejectsNonSelectBeforeExecution() {
+        // Item 4 lock-in: runQuery() must call validate() before attempting execution,
+        // so a statement that does not start with SELECT is rejected with a
+        // QueryException and never reaches Database.queryWithBinds().
+        try {
+            QueryService.runQuery('DELETE FROM Account');
+            System.assert(false, 'runQuery() should have thrown for a non-SELECT statement');
+        } catch (QueryService.QueryException e) {
+            System.assert(
+                e.getMessage().contains('SELECT') || e.getMessage().toLowerCase().contains('delete'),
+                'Exception message should explain why the non-SELECT/DML statement was rejected: ' + e.getMessage()
+            );
+        }
+    }
+
+    @isTest
+    static void runQueryRejectsBlankInput() {
+        // Null/empty handling: validate() flags blank input, and runQuery() must
+        // surface that as a QueryException rather than attempting a query.
+        try {
+            QueryService.runQuery('');
+            System.assert(false, 'runQuery() should have thrown for blank input');
+        } catch (QueryService.QueryException e) {
+            System.assert(
+                e.getMessage().contains('empty'),
+                'Exception message should indicate the query is empty: ' + e.getMessage()
+            );
+        }
+    }
 }
