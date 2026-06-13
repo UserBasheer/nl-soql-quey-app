@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Provider__c</fullName>
+    <label>Provider</label>
+    <length>40</length>
+    <type>Text</type>
+    <required>false</required>
+    <unique>false</unique>
+    <description>Name of the translation provider to use (e.g. &quot;Claude&quot; or &quot;Einstein&quot;). TranslationProviderFactory.getProvider() does a loose string compare and falls back to ClaudeTranslationProvider for any value other than &quot;Einstein&quot;, including blank or missing records.</description>
+</CustomField>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>SOQL Whisperer Setting</label>
+    <pluralLabel>SOQL Whisperer Settings</pluralLabel>
+    <visibility>Public</visibility>
+    <description>Configures which natural-language translation provider SOQL Whisperer uses. TranslationProviderFactory reads Provider__c from the record named &quot;Default&quot; and falls back to &quot;Claude&quot; when no record exists or the value is blank.</description>
+</CustomObject>
