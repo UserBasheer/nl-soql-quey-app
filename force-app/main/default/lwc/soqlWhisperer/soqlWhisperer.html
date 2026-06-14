@@ -2,6 +2,21 @@
     <lightning-card title="SOQL Whisperer" icon-name="utility:search">
         <div class="slds-p-horizontal_medium slds-p-bottom_medium">
 
+            <!-- Object scope picker: permission-scoped objects that ground the translation -->
+            <template if:true={hasObjectOptions}>
+                <lightning-dual-listbox
+                    class="slds-m-bottom_small"
+                    name="objectScope"
+                    label="Objects to ground on"
+                    field-level-help="Only these objects' schema (field names and types — no record data) is sent for translation. Pick the objects relevant to your question; fewer is faster and cheaper."
+                    source-label="Available objects"
+                    selected-label="Grounding scope"
+                    options={objectOptions}
+                    value={objectScope}
+                    onchange={handleObjectScopeChange}>
+                </lightning-dual-listbox>
+            </template>
+
             <!-- NL input -->
             <lightning-textarea
                 name="nl"
@@ -13,9 +28,9 @@
 
             <div class="slds-m-top_small">
                 <lightning-button variant="brand" label="Generate SOQL"
-                    onclick={handleGenerate} disabled={isBusy}></lightning-button>
+                    onclick={handleGenerate} disabled={actionsDisabled}></lightning-button>
                 <lightning-button class="slds-m-left_x-small" label="Refine"
-                    onclick={handleRefine} disabled={isBusy}></lightning-button>
+                    onclick={handleRefine} disabled={actionsDisabled}></lightning-button>
                 <lightning-button class="slds-m-left_x-small" label="Clear"
                     onclick={handleClear}></lightning-button>
             </div>
