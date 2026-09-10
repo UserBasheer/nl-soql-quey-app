@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomPermission xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>Export Query Results</label>
+    <description
+  >Gates the "Export CSV" button in the soqlWhisperer LWC. Grant to users who should be able to extract query results to a local file, not just view them on screen.</description>
+    <isLicensed>false</isLicensed>
+</CustomPermission>

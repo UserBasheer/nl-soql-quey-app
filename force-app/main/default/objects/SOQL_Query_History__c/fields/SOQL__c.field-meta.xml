@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>SOQL__c</fullName>
+    <label>SOQL</label>
+    <type>LongTextArea</type>
+    <length>5000</length>
+    <visibleLines>10</visibleLines>
+    <required>true</required>
+    <description
+  >The exact SOQL text that was executed. Query text/metadata only — never result rows.</description>
+</CustomField>

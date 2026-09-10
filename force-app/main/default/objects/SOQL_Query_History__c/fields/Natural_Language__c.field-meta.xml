@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Natural_Language__c</fullName>
+    <label>Natural Language</label>
+    <type>LongTextArea</type>
+    <length>1000</length>
+    <visibleLines>5</visibleLines>
+    <required>false</required>
+    <description
+  >Originating natural-language prompt, if any. Nullable — direct SOQL runs have no prompt.</description>
+</CustomField>
