@@ -77,7 +77,14 @@ public with sharing class SchemaService {
    *
    * A match also requires the name to be strictly longer than the suffix, so an object
    * named exactly 'Tag' or 'Feed' is not hidden by a sibling rule that does not apply.
+   *
+   * @TestVisible: this is pure string/boolean logic with no SOQL/describe dependency of
+   * its own (the caller supplies apiName/isCustomObject already resolved from a describe
+   * result). Exposing it to the test class lets the '__'+suffix-regardless-of-isCustom
+   * branch and the exact-length boundary guard be asserted directly with synthetic inputs,
+   * instead of depending on org schema happening to contain a matching fixture object.
    */
+  @TestVisible
   private static Boolean isSystemObject(
     String apiName,
     Boolean isCustomObject

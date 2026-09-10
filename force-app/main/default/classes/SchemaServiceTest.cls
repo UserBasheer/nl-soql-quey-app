@@ -154,78 +154,46 @@ private class SchemaServiceTest {
    * deployed schema has no custom object whose sharing/history/feed configuration
    * generates a real MyObject__Share/__History/__Feed/__ChangeEvent/__Tag sibling (the
    * only custom object, AnthropicSettings__c, is a Custom Setting and is filtered out
-   * earlier by isCustomSetting(), before isSystemObject() is ever reached), so this test
-   * cannot assert a positive custom-parent match against real deployed metadata.
+   * earlier by isCustomSetting(), before isSystemObject() is ever reached), so a
+   * listObjects()-level assertion against org fixtures cannot exercise this branch.
    *
-   * Instead, it scans the FULL org-wide global describe (not just listObjects()'s
-   * filtered result) for ANY custom object matching the '__' + suffix pattern that would
-   * also pass listObjects()'s permission/custom-setting/deprecated gates, and asserts it
-   * is excluded from the result. This exercises the exact production condition
-   * (`lower.endsWith('__' + bare)`, matched regardless of isCustomObject) against
-   * whatever custom schema exists in the executing org, protecting against a future
-   * regression where the unconditional '__'+suffix check is accidentally scoped to
-   * isCustomObject == true only (which would be the wrong fix — see class comments).
+   * Since isSystemObject() is pure string/boolean logic (@TestVisible, no SOQL/describe
+   * dependency of its own), it is called directly here with synthetic inputs instead —
+   * this gives live regression protection for the exact production condition
+   * (`lower.endsWith('__' + bare)`, matched regardless of isCustomObject) regardless of
+   * what custom schema happens to exist in the executing org.
    */
   @isTest
   static void listObjectsExcludesCustomObjectNoiseSuffixesWhenPresentInOrg() {
-    Set<String> customSuffixForms = new Set<String>{
-      '__share',
-      '__history',
-      '__feed',
-      '__changeevent',
-      '__tag'
+    // '__' + suffix form must match for a "custom" parent...
+    Assert.isTrue(
+      SchemaService.isSystemObject('Foo__Share', true),
+      'isSystemObject() must treat "Foo__Share" as noise for a custom parent ' +
+      '(isCustomObject = true) since it matches the "__"+suffix sibling form.'
+    );
+    // ...and MUST ALSO match when isCustomObject is false, because the '__'+suffix form
+    // is checked unconditionally (per the class doc comment) -- this is the exact branch
+    // a future regression could accidentally scope to isCustomObject == true only.
+    Assert.isTrue(
+      SchemaService.isSystemObject('Foo__Share', false),
+      'isSystemObject() must match the "__"+suffix sibling form ("Foo__Share") ' +
+        'UNCONDITIONALLY, regardless of isCustomObject -- this form is a reserved ' +
+        'platform naming pattern, not something gated on isCustom().'
+    );
+    // Sanity-check the other suffixes too, so the whole SYSTEM_SUFFIXES list is exercised
+    // against this branch, not just "Share".
+    List<String> customSiblingSamples = new List<String>{
+      'Foo__History',
+      'Foo__Feed',
+      'Foo__ChangeEvent',
+      'Foo__Tag'
     };
-
-    Test.startTest();
-    List<SchemaService.ObjectInfo> result = SchemaService.listObjects();
-    Test.stopTest();
-
-    Set<String> resultApiNames = new Set<String>();
-    for (SchemaService.ObjectInfo info : result) {
-      resultApiNames.add(info.apiName);
-    }
-
-    Integer customSiblingCandidatesFound = 0;
-    for (Schema.SObjectType t : Schema.getGlobalDescribe().values()) {
-      Schema.DescribeSObjectResult d = t.getDescribe();
-      if (!d.isCustom() || !d.isQueryable() || !d.isAccessible()) {
-        continue;
-      }
-      if (d.isCustomSetting() || d.isDeprecatedAndHidden()) {
-        continue;
-      }
-      String lowerApi = d.getName().toLowerCase();
-      Boolean isCustomSiblingForm = false;
-      for (String suffix : customSuffixForms) {
-        if (lowerApi.length() > suffix.length() && lowerApi.endsWith(suffix)) {
-          isCustomSiblingForm = true;
-          break;
-        }
-      }
-      if (!isCustomSiblingForm) {
-        continue;
-      }
-      customSiblingCandidatesFound++;
-      Assert.isFalse(
-        resultApiNames.contains(d.getName()),
-        'listObjects() must exclude the custom-parent noise sibling "' +
-          d.getName() +
-          '" because its API name ends with a "__"+suffix form, which isSystemObject() ' +
-          'matches unconditionally regardless of isCustom().'
-      );
-    }
-
-    if (customSiblingCandidatesFound == 0) {
-      // Documented coverage gap: no custom "__Share"/"__History"/"__Feed"/
-      // "__ChangeEvent"/"__Tag" sibling exists in this org's deployed schema to assert
-      // against. Custom objects cannot be created via DML/metadata in an Apex test, so
-      // this branch's positive behavior is verified by code inspection (see
-      // isSystemObject() doc comment) rather than a live assertion here.
+    for (String sample : customSiblingSamples) {
       Assert.isTrue(
-        true,
-        'No custom "__"+suffix noise-sibling object exists in this org to assert ' +
-          'against; see comment above for why this is a documented gap rather than a ' +
-          'live assertion.'
+        SchemaService.isSystemObject(sample, false),
+        'isSystemObject() must match the "__"+suffix sibling form ("' +
+          sample +
+          '") unconditionally, regardless of isCustomObject.'
       );
     }
   }
@@ -287,11 +255,13 @@ private class SchemaServiceTest {
    * bare suffix words (e.g. a hypothetical object literally named "Tag" or "Feed") must
    * not be excluded, since it is not actually a sibling of anything -- it IS the object.
    * No standard object in a default org's global describe has an API name exactly equal
-   * to "Share"/"History"/"Feed"/"ChangeEvent"/"Tag", so this is a best-effort check
-   * against whatever schema exists in the executing org; the length-guard behavior is
-   * otherwise documented in isSystemObject()'s doc comment and covered at the line level
-   * by every other test in this class (the guard executes on every object/suffix pair
-   * checked by listObjects()).
+   * to "Share"/"History"/"Feed"/"ChangeEvent"/"Tag", so a listObjects()-level assertion
+   * against org fixtures cannot exercise this branch.
+   *
+   * Since isSystemObject() is pure string/boolean logic (@TestVisible, no SOQL/describe
+   * dependency of its own), it is called directly here with synthetic inputs that are
+   * exactly equal to each bare suffix, giving live regression protection for the length
+   * guard regardless of what standard schema exists in the executing org.
    */
   @isTest
   static void listObjectsDoesNotExcludeObjectNamedExactlyEqualToBareSuffix() {
@@ -303,50 +273,26 @@ private class SchemaServiceTest {
       'Tag'
     };
 
-    Test.startTest();
-    List<SchemaService.ObjectInfo> result = SchemaService.listObjects();
-    Test.stopTest();
-
-    Set<String> resultApiNames = new Set<String>();
-    for (SchemaService.ObjectInfo info : result) {
-      resultApiNames.add(info.apiName);
-    }
-
-    Map<String, Schema.SObjectType> globalDescribe = Schema.getGlobalDescribe();
-    Integer exactMatchCandidatesFound = 0;
     for (String bareSuffix : bareSuffixes) {
-      if (!globalDescribe.containsKey(bareSuffix)) {
-        continue;
-      }
-      Schema.DescribeSObjectResult d = globalDescribe.get(bareSuffix)
-        .getDescribe();
-      if (
-        d.isCustom() ||
-        !d.isQueryable() ||
-        !d.isAccessible() ||
-        d.isCustomSetting() ||
-        d.isDeprecatedAndHidden()
-      ) {
-        continue;
-      }
-      exactMatchCandidatesFound++;
-      Assert.isTrue(
-        resultApiNames.contains(bareSuffix),
-        'listObjects() must not exclude "' +
+      // Exactly equal to the bare suffix, standard parent -- must NOT match, since the
+      // name is not strictly longer than the suffix (it IS the suffix, not a sibling).
+      Assert.isFalse(
+        SchemaService.isSystemObject(bareSuffix, false),
+        'isSystemObject() must not treat "' +
           bareSuffix +
-          '" purely because it matches a bare noise-suffix word exactly -- the length ' +
-          'guard requires the name to be STRICTLY LONGER than the suffix for a match.'
+          '" as noise purely because it matches a bare noise-suffix word exactly -- ' +
+          'the length guard requires the name to be STRICTLY LONGER than the suffix.'
       );
-    }
-
-    if (exactMatchCandidatesFound == 0) {
-      // Documented coverage gap: see class comment above -- no default-org standard
-      // object has an API name exactly equal to a bare noise-suffix word.
+      // One character longer, standard parent -- MUST match, confirming the guard is a
+      // strict "longer than" check and not merely case-insensitivity or a typo.
+      String oneCharLonger = 'A' + bareSuffix;
       Assert.isTrue(
-        true,
-        'No standard object named exactly equal to a bare noise-suffix word exists in ' +
-          'this org to assert against; see comment above for why this is a documented ' +
-          'gap rather than a live assertion.'
+        SchemaService.isSystemObject(oneCharLonger, false),
+        'isSystemObject() must treat "' +
+          oneCharLonger +
+          '" as a noise sibling -- it is strictly longer than the bare suffix "' +
+          bareSuffix +
+          '" and ends with it, for a standard parent.'
       );
     }
   }
