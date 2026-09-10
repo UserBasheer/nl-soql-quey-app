@@ -158,30 +158,53 @@ private class SchemaServiceTest {
    * listObjects()-level assertion against org fixtures cannot exercise this branch.
    *
    * Since isSystemObject() is pure string/boolean logic (@TestVisible, no SOQL/describe
-   * dependency of its own), it is called directly here with synthetic inputs instead —
-   * this gives live regression protection for the exact production condition
-   * (`lower.endsWith('__' + bare)`, matched regardless of isCustomObject) regardless of
-   * what custom schema happens to exist in the executing org.
+   * dependency of its own), it is called directly here with synthetic inputs instead,
+   * regardless of what custom schema happens to exist in the executing org.
+   *
+   * Isolation note: only the isCustomObject = true assertion below actually isolates the
+   * '__'+suffix branch (the bare-suffix branch cannot fire when isCustomObject == true).
+   * The isCustomObject = false assertions on the same '__'+suffix inputs cannot isolate
+   * that branch from the bare-suffix branch, because a '__'+suffix name always also ends
+   * with the bare suffix — they are kept only as a non-regression guard on the overall
+   * OR'd result. See the inline comments on each assertion for the exact guarantee it
+   * provides.
    */
   @isTest
   static void listObjectsExcludesCustomObjectNoiseSuffixesWhenPresentInOrg() {
-    // '__' + suffix form must match for a "custom" parent...
+    // '__' + suffix form must match for a "custom" parent. This is the isolating case:
+    // the bare-suffix branch requires isCustomObject != true, so it cannot fire here --
+    // only the '__'+suffix branch can produce `true` for this call. A regression that
+    // wrongly scoped the '__'+suffix branch away from isCustomObject = true would be
+    // caught by this assertion alone.
     Assert.isTrue(
       SchemaService.isSystemObject('Foo__Share', true),
       'isSystemObject() must treat "Foo__Share" as noise for a custom parent ' +
       '(isCustomObject = true) since it matches the "__"+suffix sibling form.'
     );
-    // ...and MUST ALSO match when isCustomObject is false, because the '__'+suffix form
-    // is checked unconditionally (per the class doc comment) -- this is the exact branch
-    // a future regression could accidentally scope to isCustomObject == true only.
+    // NOTE on isolation: unlike the isCustomObject = true case above, calling
+    // isSystemObject() with isCustomObject = false on a '__'+suffix name does NOT isolate
+    // the '__'+suffix branch from the bare-suffix branch. "Foo__Share" also ends with the
+    // bare suffix "Share", so the bare-suffix branch (which fires whenever
+    // isCustomObject != true) independently returns true for this same input. A regression
+    // that wrongly scoped the '__'+suffix branch to isCustomObject == true only would NOT
+    // be caught by this assertion, because the bare-suffix branch would still mask it.
+    // What this DOES verify, honestly: isSystemObject() correctly reflects its OR-of-two-
+    // conditions design -- a '__'+suffix name is noise no matter which parent type it is
+    // paired with -- which is still a legitimate non-regression guard on the overall
+    // behavior, just not a branch-isolating one.
     Assert.isTrue(
       SchemaService.isSystemObject('Foo__Share', false),
-      'isSystemObject() must match the "__"+suffix sibling form ("Foo__Share") ' +
-        'UNCONDITIONALLY, regardless of isCustomObject -- this form is a reserved ' +
-        'platform naming pattern, not something gated on isCustom().'
+      'isSystemObject() must treat "Foo__Share" as noise when isCustomObject = false too ' +
+        '(the "__"+suffix and bare-suffix checks are OR\'d together, and this input also ' +
+        'matches the bare "Share" suffix) -- this does not isolate the "__"+suffix branch ' +
+        'from the bare-suffix branch; see the isCustomObject = true assertion above for ' +
+        'that isolation.'
     );
     // Sanity-check the other suffixes too, so the whole SYSTEM_SUFFIXES list is exercised
-    // against this branch, not just "Share".
+    // against the '__'+suffix form. As with "Foo__Share" above, these calls with
+    // isCustomObject = false do not isolate the '__'+suffix branch from the bare-suffix
+    // branch (each sample also ends with its own bare suffix) -- they only confirm the
+    // OR'd result holds across the full suffix list.
     List<String> customSiblingSamples = new List<String>{
       'Foo__History',
       'Foo__Feed',
@@ -191,9 +214,11 @@ private class SchemaServiceTest {
     for (String sample : customSiblingSamples) {
       Assert.isTrue(
         SchemaService.isSystemObject(sample, false),
-        'isSystemObject() must match the "__"+suffix sibling form ("' +
+        'isSystemObject() must treat "' +
           sample +
-          '") unconditionally, regardless of isCustomObject.'
+          '" as noise regardless of isCustomObject (OR\'d "__"+suffix / bare-suffix ' +
+          'checks); this is a non-regression guard on the overall result, not a proof ' +
+          'that the "__"+suffix branch alone is unconditional.'
       );
     }
   }
