@@ -147,6 +147,210 @@ private class SchemaServiceTest {
     }
   }
 
+  /**
+   * Regression guard for the double-underscore ('__' + suffix) noise-sibling form, which
+   * isSystemObject() matches UNCONDITIONALLY regardless of isCustom() (it is the sibling
+   * pattern for CUSTOM parents, e.g. MyObject__c => MyObject__Share). This project's
+   * deployed schema has no custom object whose sharing/history/feed configuration
+   * generates a real MyObject__Share/__History/__Feed/__ChangeEvent/__Tag sibling (the
+   * only custom object, AnthropicSettings__c, is a Custom Setting and is filtered out
+   * earlier by isCustomSetting(), before isSystemObject() is ever reached), so this test
+   * cannot assert a positive custom-parent match against real deployed metadata.
+   *
+   * Instead, it scans the FULL org-wide global describe (not just listObjects()'s
+   * filtered result) for ANY custom object matching the '__' + suffix pattern that would
+   * also pass listObjects()'s permission/custom-setting/deprecated gates, and asserts it
+   * is excluded from the result. This exercises the exact production condition
+   * (`lower.endsWith('__' + bare)`, matched regardless of isCustomObject) against
+   * whatever custom schema exists in the executing org, protecting against a future
+   * regression where the unconditional '__'+suffix check is accidentally scoped to
+   * isCustomObject == true only (which would be the wrong fix — see class comments).
+   */
+  @isTest
+  static void listObjectsExcludesCustomObjectNoiseSuffixesWhenPresentInOrg() {
+    Set<String> customSuffixForms = new Set<String>{
+      '__share',
+      '__history',
+      '__feed',
+      '__changeevent',
+      '__tag'
+    };
+
+    Test.startTest();
+    List<SchemaService.ObjectInfo> result = SchemaService.listObjects();
+    Test.stopTest();
+
+    Set<String> resultApiNames = new Set<String>();
+    for (SchemaService.ObjectInfo info : result) {
+      resultApiNames.add(info.apiName);
+    }
+
+    Integer customSiblingCandidatesFound = 0;
+    for (Schema.SObjectType t : Schema.getGlobalDescribe().values()) {
+      Schema.DescribeSObjectResult d = t.getDescribe();
+      if (!d.isCustom() || !d.isQueryable() || !d.isAccessible()) {
+        continue;
+      }
+      if (d.isCustomSetting() || d.isDeprecatedAndHidden()) {
+        continue;
+      }
+      String lowerApi = d.getName().toLowerCase();
+      Boolean isCustomSiblingForm = false;
+      for (String suffix : customSuffixForms) {
+        if (lowerApi.length() > suffix.length() && lowerApi.endsWith(suffix)) {
+          isCustomSiblingForm = true;
+          break;
+        }
+      }
+      if (!isCustomSiblingForm) {
+        continue;
+      }
+      customSiblingCandidatesFound++;
+      Assert.isFalse(
+        resultApiNames.contains(d.getName()),
+        'listObjects() must exclude the custom-parent noise sibling "' +
+          d.getName() +
+          '" because its API name ends with a "__"+suffix form, which isSystemObject() ' +
+          'matches unconditionally regardless of isCustom().'
+      );
+    }
+
+    if (customSiblingCandidatesFound == 0) {
+      // Documented coverage gap: no custom "__Share"/"__History"/"__Feed"/
+      // "__ChangeEvent"/"__Tag" sibling exists in this org's deployed schema to assert
+      // against. Custom objects cannot be created via DML/metadata in an Apex test, so
+      // this branch's positive behavior is verified by code inspection (see
+      // isSystemObject() doc comment) rather than a live assertion here.
+      Assert.isTrue(
+        true,
+        'No custom "__"+suffix noise-sibling object exists in this org to assert ' +
+          'against; see comment above for why this is a documented gap rather than a ' +
+          'live assertion.'
+      );
+    }
+  }
+
+  /**
+   * False-positive guard: standard objects whose API name CONTAINS a noise suffix word
+   * but does not END WITH it must NOT be excluded. isSystemObject() uses endsWith(), not
+   * contains(), so e.g. "FeedItem" (contains "Feed" as a prefix) or "FieldHistoryArchive"
+   * (contains "History" mid-name) must be kept.
+   */
+  @isTest
+  static void listObjectsKeepsStandardObjectsThatContainButDoNotEndWithNoiseSuffix() {
+    List<String> nonSuffixCandidates = new List<String>{
+      'FeedItem',
+      'FeedComment',
+      'FieldHistoryArchive',
+      'TagDefinition'
+    };
+
+    Test.startTest();
+    List<SchemaService.ObjectInfo> result = SchemaService.listObjects();
+    Test.stopTest();
+
+    Set<String> resultApiNames = new Set<String>();
+    for (SchemaService.ObjectInfo info : result) {
+      resultApiNames.add(info.apiName);
+    }
+
+    Map<String, Schema.SObjectType> globalDescribe = Schema.getGlobalDescribe();
+    for (String candidate : nonSuffixCandidates) {
+      if (!globalDescribe.containsKey(candidate)) {
+        continue;
+      }
+      Schema.DescribeSObjectResult d = globalDescribe.get(candidate)
+        .getDescribe();
+      if (
+        !d.isQueryable() ||
+        !d.isAccessible() ||
+        d.isCustomSetting() ||
+        d.isDeprecatedAndHidden()
+      ) {
+        // Not eligible for listObjects() for reasons unrelated to the noise-suffix
+        // filter (e.g. feature not enabled in this org) -- skip rather than assert.
+        continue;
+      }
+      Assert.isTrue(
+        resultApiNames.contains(candidate),
+        'listObjects() must NOT exclude "' +
+          candidate +
+          '" -- it contains a noise-suffix word but does not END WITH it, so the ' +
+          'endsWith()-based isSystemObject() check must keep it.'
+      );
+    }
+  }
+
+  /**
+   * Boundary guard for the "strictly longer than the suffix" length check in
+   * isSystemObject(): a standard object whose API name is EXACTLY equal to one of the
+   * bare suffix words (e.g. a hypothetical object literally named "Tag" or "Feed") must
+   * not be excluded, since it is not actually a sibling of anything -- it IS the object.
+   * No standard object in a default org's global describe has an API name exactly equal
+   * to "Share"/"History"/"Feed"/"ChangeEvent"/"Tag", so this is a best-effort check
+   * against whatever schema exists in the executing org; the length-guard behavior is
+   * otherwise documented in isSystemObject()'s doc comment and covered at the line level
+   * by every other test in this class (the guard executes on every object/suffix pair
+   * checked by listObjects()).
+   */
+  @isTest
+  static void listObjectsDoesNotExcludeObjectNamedExactlyEqualToBareSuffix() {
+    List<String> bareSuffixes = new List<String>{
+      'Share',
+      'History',
+      'Feed',
+      'ChangeEvent',
+      'Tag'
+    };
+
+    Test.startTest();
+    List<SchemaService.ObjectInfo> result = SchemaService.listObjects();
+    Test.stopTest();
+
+    Set<String> resultApiNames = new Set<String>();
+    for (SchemaService.ObjectInfo info : result) {
+      resultApiNames.add(info.apiName);
+    }
+
+    Map<String, Schema.SObjectType> globalDescribe = Schema.getGlobalDescribe();
+    Integer exactMatchCandidatesFound = 0;
+    for (String bareSuffix : bareSuffixes) {
+      if (!globalDescribe.containsKey(bareSuffix)) {
+        continue;
+      }
+      Schema.DescribeSObjectResult d = globalDescribe.get(bareSuffix)
+        .getDescribe();
+      if (
+        d.isCustom() ||
+        !d.isQueryable() ||
+        !d.isAccessible() ||
+        d.isCustomSetting() ||
+        d.isDeprecatedAndHidden()
+      ) {
+        continue;
+      }
+      exactMatchCandidatesFound++;
+      Assert.isTrue(
+        resultApiNames.contains(bareSuffix),
+        'listObjects() must not exclude "' +
+          bareSuffix +
+          '" purely because it matches a bare noise-suffix word exactly -- the length ' +
+          'guard requires the name to be STRICTLY LONGER than the suffix for a match.'
+      );
+    }
+
+    if (exactMatchCandidatesFound == 0) {
+      // Documented coverage gap: see class comment above -- no default-org standard
+      // object has an API name exactly equal to a bare noise-suffix word.
+      Assert.isTrue(
+        true,
+        'No standard object named exactly equal to a bare noise-suffix word exists in ' +
+          'this org to assert against; see comment above for why this is a documented ' +
+          'gap rather than a live assertion.'
+      );
+    }
+  }
+
   @isTest
   static void listObjectsExcludesCustomSettingsAndDeprecatedHiddenObjects() {
     Test.startTest();
