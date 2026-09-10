@@ -1,8 +1,15 @@
-import { LightningElement, track } from 'lwc';
+import { LightningElement, track, wire } from 'lwc';
+import getObjects from '@salesforce/apex/SoqlWhispererController.getObjects';
 import generateQuery from '@salesforce/apex/SoqlWhispererController.generateQuery';
 import refineQuery from '@salesforce/apex/SoqlWhispererController.refineQuery';
 import validateQuery from '@salesforce/apex/SoqlWhispererController.validateQuery';
 import runQuery from '@salesforce/apex/SoqlWhispererController.runQuery';
+
+// Objects we prefer to preselect on first load, in priority order, when present in the
+// permission-scoped list. Preserves the pre-Phase-3 default grounding behavior.
+const PREFERRED_DEFAULTS = ['Account', 'Contact', 'Case', 'Opportunity', 'Lead'];
+// How many objects to preselect by default when none of the preferred ones are present.
+const DEFAULT_FALLBACK_COUNT = 5;
 
 export default class SoqlWhisperer extends LightningElement {
     @track naturalLanguage = '';
@@ -14,9 +21,62 @@ export default class SoqlWhisperer extends LightningElement {
     @track resultColumns = [];
     @track isBusy = false;
 
-    // Phase 1: scope which objects' schema is sent for grounding.
-    // Phase 3 upgrades this to relevance-based retrieval for large orgs.
-    objectScope = ['Account', 'Contact', 'Case', 'Opportunity', 'Lead'];
+    // Phase 3: permission-scoped object grounding. `objectOptions` is sourced from
+    // SchemaService.listObjects() via getObjects(); `objectScope` is the user's selection
+    // and is passed unchanged (List<String> of API names) to generate/refine.
+    @track objectOptions = [];
+    @track objectScope = [];
+    @track objectsReady = false;
+    @track objectsError = false;
+
+    @wire(getObjects)
+    wiredObjects({ data, error }) {
+        if (data) {
+            this.objectOptions = data.map((o) => ({ label: o.label, value: o.apiName }));
+            this.objectScope = this.computeDefaultSelection(this.objectOptions);
+            this.objectsReady = true;
+            this.objectsError = false;
+            if (this.objectOptions.length === 0) {
+                this.validationMessage =
+                    '✗ No queryable objects are accessible to you. Ask an admin for object access.';
+                this.validationClass =
+                    'slds-box slds-box_xx-small slds-m-top_x-small slds-theme_warning';
+            }
+        } else if (error) {
+            this.objectOptions = [];
+            this.objectScope = [];
+            this.objectsReady = true;
+            this.objectsError = true;
+            this.showError(error);
+        }
+    }
+
+    // Preselect preferred objects if present; otherwise the first few alphabetically
+    // (the list arrives label-sorted from SchemaService). Never returns more than available.
+    computeDefaultSelection(options) {
+        const available = new Set(options.map((o) => o.value));
+        const preferred = PREFERRED_DEFAULTS.filter((api) => available.has(api));
+        if (preferred.length > 0) {
+            return preferred;
+        }
+        return options.slice(0, DEFAULT_FALLBACK_COUNT).map((o) => o.value);
+    }
+
+    handleObjectScopeChange(e) {
+        this.objectScope = e.detail.value;
+    }
+
+    get hasObjectOptions() {
+        return this.objectsReady && !this.objectsError && this.objectOptions.length > 0;
+    }
+
+    get hasScope() {
+        return this.objectScope && this.objectScope.length > 0;
+    }
+
+    get actionsDisabled() {
+        return this.isBusy || !this.hasScope;
+    }
 
     get hasResults() {
         return this.resultRows && this.resultRows.length > 0;
@@ -35,7 +95,7 @@ export default class SoqlWhisperer extends LightningElement {
     }
 
     async handleGenerate() {
-        if (!this.naturalLanguage) return;
+        if (!this.naturalLanguage || !this.hasScope) return;
         this.isBusy = true;
         try {
             this.soql = await generateQuery({
@@ -51,7 +111,7 @@ export default class SoqlWhisperer extends LightningElement {
     }
 
     async handleRefine() {
-        if (!this.naturalLanguage || !this.soql) return;
+        if (!this.naturalLanguage || !this.soql || !this.hasScope) return;
         this.isBusy = true;
         try {
             this.soql = await refineQuery({

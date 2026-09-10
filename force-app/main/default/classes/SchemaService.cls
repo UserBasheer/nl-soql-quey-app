@@ -5,16 +5,78 @@
  */
 public with sharing class SchemaService {
 
-    /** List queryable objects (API name + label) the user can see. */
+    /**
+     * System/setup object name suffixes that are queryable+accessible but are noise for a
+     * user-facing picker (share rows, history, feeds, change events, tags). These are never
+     * objects a user picks to ground a business query, so we exclude them from the listing.
+     * This only NARROWS the list — it never widens access.
+     */
+    private static final List<String> SYSTEM_SUFFIXES = new List<String>{
+        '__Share', '__History', '__Feed', '__ChangeEvent', '__Tag'
+    };
+
+    /**
+     * List queryable objects (API name + label) the user can see, excluding system/setup noise.
+     *
+     * Permission filter (unchanged): keep only objects the running user can query and access
+     * (isQueryable() && isAccessible()) — combined with `with sharing`, this is the running
+     * user's effective object/FLS visibility.
+     *
+     * Noise exclusions (new): custom settings, deprecated/hidden objects, and the system
+     * suffixes above. These never grant access; they only remove objects no user would
+     * legitimately pick to ground a query. Standard objects and __c custom objects are kept.
+     *
+     * Result is sorted by label for a stable, user-friendly picker order. No hard cap is
+     * applied — accessible business objects are never silently truncated.
+     */
     public static List<ObjectInfo> listObjects() {
         List<ObjectInfo> out = new List<ObjectInfo>();
         for (Schema.SObjectType t : Schema.getGlobalDescribe().values()) {
             Schema.DescribeSObjectResult d = t.getDescribe();
-            if (d.isQueryable() && d.isAccessible()) {
-                out.add(new ObjectInfo(d.getName(), d.getLabel()));
+
+            // Permission gate — unchanged. Only objects the user can query and access.
+            if (!d.isQueryable() || !d.isAccessible()) {
+                continue;
+            }
+            // Noise gate — narrow only. Skip system/setup objects no user would ground on.
+            if (d.isCustomSetting() || d.isDeprecatedAndHidden() || isSystemObject(d.getName())) {
+                continue;
+            }
+
+            out.add(new ObjectInfo(d.getName(), d.getLabel()));
+        }
+
+        out.sort(new ObjectInfoLabelComparator());
+        return out;
+    }
+
+    /** True if the API name ends in one of the system/setup suffixes (case-insensitive). */
+    private static Boolean isSystemObject(String apiName) {
+        if (String.isBlank(apiName)) {
+            return false;
+        }
+        String lower = apiName.toLowerCase();
+        for (String suffix : SYSTEM_SUFFIXES) {
+            if (lower.endsWith(suffix.toLowerCase())) {
+                return true;
             }
         }
-        return out;
+        return false;
+    }
+
+    /** Sorts ObjectInfo by label (case-insensitive), then by API name for stable ordering. */
+    private class ObjectInfoLabelComparator implements Comparator<ObjectInfo> {
+        public Integer compare(ObjectInfo a, ObjectInfo b) {
+            String la = (a.label == null ? '' : a.label).toLowerCase();
+            String lb = (b.label == null ? '' : b.label).toLowerCase();
+            Integer byLabel = la.compareTo(lb);
+            if (byLabel != 0) {
+                return byLabel;
+            }
+            String aa = (a.apiName == null ? '' : a.apiName);
+            String ba = (b.apiName == null ? '' : b.apiName);
+            return aa.compareTo(ba);
+        }
     }
 
     /** Describe a single object's accessible fields. */
