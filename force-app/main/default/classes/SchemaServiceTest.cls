@@ -147,6 +147,181 @@ private class SchemaServiceTest {
     }
   }
 
+  /**
+   * Regression guard for the double-underscore ('__' + suffix) noise-sibling form, which
+   * isSystemObject() matches UNCONDITIONALLY regardless of isCustom() (it is the sibling
+   * pattern for CUSTOM parents, e.g. MyObject__c => MyObject__Share). This project's
+   * deployed schema has no custom object whose sharing/history/feed configuration
+   * generates a real MyObject__Share/__History/__Feed/__ChangeEvent/__Tag sibling (the
+   * only custom object, AnthropicSettings__c, is a Custom Setting and is filtered out
+   * earlier by isCustomSetting(), before isSystemObject() is ever reached), so a
+   * listObjects()-level assertion against org fixtures cannot exercise this branch.
+   *
+   * Since isSystemObject() is pure string/boolean logic (@TestVisible, no SOQL/describe
+   * dependency of its own), it is called directly here with synthetic inputs instead,
+   * regardless of what custom schema happens to exist in the executing org.
+   *
+   * Isolation note: only the isCustomObject = true assertion below actually isolates the
+   * '__'+suffix branch (the bare-suffix branch cannot fire when isCustomObject == true).
+   * The isCustomObject = false assertions on the same '__'+suffix inputs cannot isolate
+   * that branch from the bare-suffix branch, because a '__'+suffix name always also ends
+   * with the bare suffix — they are kept only as a non-regression guard on the overall
+   * OR'd result. See the inline comments on each assertion for the exact guarantee it
+   * provides.
+   */
+  @isTest
+  static void listObjectsExcludesCustomObjectNoiseSuffixesWhenPresentInOrg() {
+    // '__' + suffix form must match for a "custom" parent. This is the isolating case:
+    // the bare-suffix branch requires isCustomObject != true, so it cannot fire here --
+    // only the '__'+suffix branch can produce `true` for this call. A regression that
+    // wrongly scoped the '__'+suffix branch away from isCustomObject = true would be
+    // caught by this assertion alone.
+    Assert.isTrue(
+      SchemaService.isSystemObject('Foo__Share', true),
+      'isSystemObject() must treat "Foo__Share" as noise for a custom parent ' +
+      '(isCustomObject = true) since it matches the "__"+suffix sibling form.'
+    );
+    // NOTE on isolation: unlike the isCustomObject = true case above, calling
+    // isSystemObject() with isCustomObject = false on a '__'+suffix name does NOT isolate
+    // the '__'+suffix branch from the bare-suffix branch. "Foo__Share" also ends with the
+    // bare suffix "Share", so the bare-suffix branch (which fires whenever
+    // isCustomObject != true) independently returns true for this same input. A regression
+    // that wrongly scoped the '__'+suffix branch to isCustomObject == true only would NOT
+    // be caught by this assertion, because the bare-suffix branch would still mask it.
+    // What this DOES verify, honestly: isSystemObject() correctly reflects its OR-of-two-
+    // conditions design -- a '__'+suffix name is noise no matter which parent type it is
+    // paired with -- which is still a legitimate non-regression guard on the overall
+    // behavior, just not a branch-isolating one.
+    Assert.isTrue(
+      SchemaService.isSystemObject('Foo__Share', false),
+      'isSystemObject() must treat "Foo__Share" as noise when isCustomObject = false too ' +
+        '(the "__"+suffix and bare-suffix checks are OR\'d together, and this input also ' +
+        'matches the bare "Share" suffix) -- this does not isolate the "__"+suffix branch ' +
+        'from the bare-suffix branch; see the isCustomObject = true assertion above for ' +
+        'that isolation.'
+    );
+    // Sanity-check the other suffixes too, so the whole SYSTEM_SUFFIXES list is exercised
+    // against the '__'+suffix form. As with "Foo__Share" above, these calls with
+    // isCustomObject = false do not isolate the '__'+suffix branch from the bare-suffix
+    // branch (each sample also ends with its own bare suffix) -- they only confirm the
+    // OR'd result holds across the full suffix list.
+    List<String> customSiblingSamples = new List<String>{
+      'Foo__History',
+      'Foo__Feed',
+      'Foo__ChangeEvent',
+      'Foo__Tag'
+    };
+    for (String sample : customSiblingSamples) {
+      Assert.isTrue(
+        SchemaService.isSystemObject(sample, false),
+        'isSystemObject() must treat "' +
+          sample +
+          '" as noise regardless of isCustomObject (OR\'d "__"+suffix / bare-suffix ' +
+          'checks); this is a non-regression guard on the overall result, not a proof ' +
+          'that the "__"+suffix branch alone is unconditional.'
+      );
+    }
+  }
+
+  /**
+   * False-positive guard: standard objects whose API name CONTAINS a noise suffix word
+   * but does not END WITH it must NOT be excluded. isSystemObject() uses endsWith(), not
+   * contains(), so e.g. "FeedItem" (contains "Feed" as a prefix) or "FieldHistoryArchive"
+   * (contains "History" mid-name) must be kept.
+   */
+  @isTest
+  static void listObjectsKeepsStandardObjectsThatContainButDoNotEndWithNoiseSuffix() {
+    List<String> nonSuffixCandidates = new List<String>{
+      'FeedItem',
+      'FeedComment',
+      'FieldHistoryArchive',
+      'TagDefinition'
+    };
+
+    Test.startTest();
+    List<SchemaService.ObjectInfo> result = SchemaService.listObjects();
+    Test.stopTest();
+
+    Set<String> resultApiNames = new Set<String>();
+    for (SchemaService.ObjectInfo info : result) {
+      resultApiNames.add(info.apiName);
+    }
+
+    Map<String, Schema.SObjectType> globalDescribe = Schema.getGlobalDescribe();
+    for (String candidate : nonSuffixCandidates) {
+      if (!globalDescribe.containsKey(candidate)) {
+        continue;
+      }
+      Schema.DescribeSObjectResult d = globalDescribe.get(candidate)
+        .getDescribe();
+      if (
+        !d.isQueryable() ||
+        !d.isAccessible() ||
+        d.isCustomSetting() ||
+        d.isDeprecatedAndHidden()
+      ) {
+        // Not eligible for listObjects() for reasons unrelated to the noise-suffix
+        // filter (e.g. feature not enabled in this org) -- skip rather than assert.
+        continue;
+      }
+      Assert.isTrue(
+        resultApiNames.contains(candidate),
+        'listObjects() must NOT exclude "' +
+          candidate +
+          '" -- it contains a noise-suffix word but does not END WITH it, so the ' +
+          'endsWith()-based isSystemObject() check must keep it.'
+      );
+    }
+  }
+
+  /**
+   * Boundary guard for the "strictly longer than the suffix" length check in
+   * isSystemObject(): a standard object whose API name is EXACTLY equal to one of the
+   * bare suffix words (e.g. a hypothetical object literally named "Tag" or "Feed") must
+   * not be excluded, since it is not actually a sibling of anything -- it IS the object.
+   * No standard object in a default org's global describe has an API name exactly equal
+   * to "Share"/"History"/"Feed"/"ChangeEvent"/"Tag", so a listObjects()-level assertion
+   * against org fixtures cannot exercise this branch.
+   *
+   * Since isSystemObject() is pure string/boolean logic (@TestVisible, no SOQL/describe
+   * dependency of its own), it is called directly here with synthetic inputs that are
+   * exactly equal to each bare suffix, giving live regression protection for the length
+   * guard regardless of what standard schema exists in the executing org.
+   */
+  @isTest
+  static void listObjectsDoesNotExcludeObjectNamedExactlyEqualToBareSuffix() {
+    List<String> bareSuffixes = new List<String>{
+      'Share',
+      'History',
+      'Feed',
+      'ChangeEvent',
+      'Tag'
+    };
+
+    for (String bareSuffix : bareSuffixes) {
+      // Exactly equal to the bare suffix, standard parent -- must NOT match, since the
+      // name is not strictly longer than the suffix (it IS the suffix, not a sibling).
+      Assert.isFalse(
+        SchemaService.isSystemObject(bareSuffix, false),
+        'isSystemObject() must not treat "' +
+          bareSuffix +
+          '" as noise purely because it matches a bare noise-suffix word exactly -- ' +
+          'the length guard requires the name to be STRICTLY LONGER than the suffix.'
+      );
+      // One character longer, standard parent -- MUST match, confirming the guard is a
+      // strict "longer than" check and not merely case-insensitivity or a typo.
+      String oneCharLonger = 'A' + bareSuffix;
+      Assert.isTrue(
+        SchemaService.isSystemObject(oneCharLonger, false),
+        'isSystemObject() must treat "' +
+          oneCharLonger +
+          '" as a noise sibling -- it is strictly longer than the bare suffix "' +
+          bareSuffix +
+          '" and ends with it, for a standard parent.'
+      );
+    }
+  }
+
   @isTest
   static void listObjectsExcludesCustomSettingsAndDeprecatedHiddenObjects() {
     Test.startTest();
