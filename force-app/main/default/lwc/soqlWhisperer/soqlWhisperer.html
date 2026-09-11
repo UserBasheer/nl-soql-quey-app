@@ -1,81 +1,258 @@
 <template>
-    <lightning-card title="SOQL Whisperer" icon-name="utility:search">
-        <div class="slds-p-horizontal_medium slds-p-bottom_medium">
-
-            <!-- Object scope picker: permission-scoped objects that ground the translation -->
-            <template if:true={hasObjectOptions}>
-                <lightning-dual-listbox
-                    class="slds-m-bottom_small"
-                    name="objectScope"
-                    label="Objects to ground on"
-                    field-level-help="Only these objects' schema (field names and types — no record data) is sent for translation. Pick the objects relevant to your question; fewer is faster and cheaper."
-                    source-label="Available objects"
-                    selected-label="Grounding scope"
-                    options={objectOptions}
-                    value={objectScope}
-                    onchange={handleObjectScopeChange}>
-                </lightning-dual-listbox>
-            </template>
-
-            <!-- NL input -->
-            <lightning-textarea
-                name="nl"
-                label="Ask a question — or refine the current query"
-                value={naturalLanguage}
-                onchange={handleNlChange}
-                placeholder="e.g. Show me accounts in California created in the last 30 days">
-            </lightning-textarea>
-
-            <div class="slds-m-top_small">
-                <lightning-button variant="brand" label="Generate SOQL"
-                    onclick={handleGenerate} disabled={actionsDisabled}></lightning-button>
-                <lightning-button class="slds-m-left_x-small" label="Refine"
-                    onclick={handleRefine} disabled={actionsDisabled}></lightning-button>
-                <lightning-button class="slds-m-left_x-small" label="Clear"
-                    onclick={handleClear}></lightning-button>
-            </div>
-
-            <!-- SOQL panel -->
-            <lightning-textarea
-                class="slds-m-top_medium soql-box"
-                name="soql"
-                label="Generated SOQL (editable)"
-                value={soql}
-                onchange={handleSoqlChange}>
-            </lightning-textarea>
-
-            <template if:true={assumption}>
-                <div class="slds-box slds-box_xx-small slds-m-top_x-small slds-theme_warning">
-                    {assumption}
-                </div>
-            </template>
-
-            <template if:true={validationMessage}>
-                <div class={validationClass}>{validationMessage}</div>
-            </template>
-
-            <div class="slds-m-top_small">
-                <lightning-button variant="brand" label="Run Query"
-                    onclick={handleRun} disabled={isBusy}></lightning-button>
-                <lightning-button class="slds-m-left_x-small" label="Validate Only"
-                    onclick={handleValidate}></lightning-button>
-            </div>
-
-            <!-- Results -->
-            <template if:true={hasResults}>
-                <div class="slds-m-top_medium">
-                    <lightning-datatable
-                        key-field="Id"
-                        data={resultRows}
-                        columns={resultColumns}
-                        hide-checkbox-column="true">
-                    </lightning-datatable>
-                </div>
-            </template>
-
-            <template if:true={isBusy}>
-                <lightning-spinner alternative-text="Working" size="small"></lightning-spinner>
-            </template>
+  <lightning-card title="SOQL Whisperer" icon-name="utility:search">
+    <div class="slds-p-horizontal_medium slds-p-bottom_medium">
+      <!-- Saved queries toolbar -->
+      <div
+        class="slds-grid slds-grid_vertical-align-end slds-wrap slds-gutters_x-small slds-m-bottom_small"
+      >
+        <div class="slds-col slds-size_1-of-2">
+          <lightning-combobox
+            name="savedQueries"
+            label="Saved queries"
+            placeholder="Load a saved query"
+            options={savedQueryOptions}
+            value={selectedSavedQueryId}
+            disabled={isBusy}
+            onchange={handleSavedQueryChange}
+          >
+          </lightning-combobox>
         </div>
-    </lightning-card>
+        <div class="slds-col">
+          <lightning-button
+            label="Save current"
+            onclick={handleSaveCurrentClick}
+            disabled={isBusy}
+          ></lightning-button>
+          <lightning-button
+            class="slds-m-left_x-small"
+            label="Delete"
+            onclick={handleDeleteSaved}
+            disabled={deleteSavedDisabled}
+          ></lightning-button>
+        </div>
+      </div>
+
+      <!-- Inline save-name field (no modal: keeps this to one LWC bundle) -->
+      <template if:true={isNamingSave}>
+        <div
+          class="slds-grid slds-grid_vertical-align-end slds-gutters_x-small slds-m-bottom_small"
+        >
+          <div class="slds-col slds-size_1-of-2">
+            <lightning-input
+              name="saveName"
+              label="Name this query"
+              value={saveName}
+              field-level-help="Saving under an existing name of yours overwrites that saved query."
+              onchange={handleSaveNameChange}
+            >
+            </lightning-input>
+          </div>
+          <div class="slds-col">
+            <lightning-button
+              variant="brand"
+              label="Save"
+              onclick={handleSaveConfirm}
+              disabled={saveConfirmDisabled}
+            ></lightning-button>
+            <lightning-button
+              class="slds-m-left_x-small"
+              label="Cancel"
+              onclick={handleSaveCancel}
+            ></lightning-button>
+          </div>
+        </div>
+      </template>
+
+      <template if:true={toolbarMessage}>
+        <div class={toolbarClass}>{toolbarMessage}</div>
+      </template>
+
+      <!-- Object scope picker: permission-scoped objects that ground the translation -->
+      <template if:true={hasObjectOptions}>
+        <lightning-dual-listbox
+          class="slds-m-bottom_small slds-m-top_small"
+          name="objectScope"
+          label="Objects to ground on"
+          field-level-help="Only these objects' schema (field names and types — no record data) is sent for translation. Pick the objects relevant to your question; fewer is faster and cheaper."
+          source-label="Available objects"
+          selected-label="Grounding scope"
+          options={objectOptions}
+          value={objectScope}
+          onchange={handleObjectScopeChange}
+        >
+        </lightning-dual-listbox>
+      </template>
+
+      <!-- NL input -->
+      <lightning-textarea
+        name="nl"
+        label="Ask a question — or refine the current query"
+        value={naturalLanguage}
+        onchange={handleNlChange}
+        placeholder="e.g. Show me accounts in California created in the last 30 days"
+      >
+      </lightning-textarea>
+
+      <div class="slds-m-top_small">
+        <lightning-button
+          variant="brand"
+          label="Generate SOQL"
+          onclick={handleGenerate}
+          disabled={actionsDisabled}
+        ></lightning-button>
+        <lightning-button
+          class="slds-m-left_x-small"
+          label="Refine"
+          onclick={handleRefine}
+          disabled={actionsDisabled}
+        ></lightning-button>
+        <lightning-button
+          class="slds-m-left_x-small"
+          label="Clear"
+          onclick={handleClear}
+        ></lightning-button>
+      </div>
+
+      <!-- SOQL panel -->
+      <lightning-textarea
+        class="slds-m-top_medium soql-box"
+        name="soql"
+        label="Generated SOQL (editable)"
+        value={soql}
+        onchange={handleSoqlChange}
+      >
+      </lightning-textarea>
+
+      <template if:true={assumption}>
+        <div
+          class="slds-box slds-box_xx-small slds-m-top_x-small slds-theme_warning"
+        >
+          {assumption}
+        </div>
+      </template>
+
+      <template if:true={validationMessage}>
+        <div class={validationClass}>{validationMessage}</div>
+      </template>
+
+      <div class="slds-m-top_small">
+        <lightning-button
+          variant="brand"
+          label="Run Query"
+          onclick={handleRun}
+          disabled={isBusy}
+        ></lightning-button>
+        <lightning-button
+          class="slds-m-left_x-small"
+          label="Validate Only"
+          onclick={handleValidate}
+        ></lightning-button>
+      </div>
+
+      <!-- Results -->
+      <template if:true={hasResults}>
+        <div class="slds-m-top_medium">
+          <!-- Export is built in the browser from the rows already on screen.
+                         Hidden entirely without the Export_Query_Results custom permission. -->
+          <template if:true={canExport}>
+            <div class="slds-m-bottom_x-small">
+              <lightning-button
+                class="csv-export"
+                icon-name="utility:download"
+                label="Export CSV"
+                onclick={handleExport}
+              >
+              </lightning-button>
+            </div>
+          </template>
+          <lightning-datatable
+            key-field="Id"
+            data={resultRows}
+            columns={resultColumns}
+            hide-checkbox-column="true"
+          >
+          </lightning-datatable>
+        </div>
+      </template>
+
+      <!-- Query history: collapsed by default, fetched only on first expand -->
+      <div class="slds-m-top_medium">
+        <lightning-accordion
+          allow-multiple-sections-open
+          onsectiontoggle={handleHistoryToggle}
+        >
+          <lightning-accordion-section name="history" label="Query history">
+            <div class="slds-m-bottom_x-small">
+              <lightning-button
+                label="Refresh"
+                onclick={handleHistoryRefresh}
+                disabled={historyBusy}
+              ></lightning-button>
+              <template if:true={canShowMoreHistory}>
+                <lightning-button
+                  class="slds-m-left_x-small"
+                  label="Show more"
+                  onclick={handleShowMoreHistory}
+                  disabled={historyBusy}
+                ></lightning-button>
+              </template>
+              <template if:false={isConfirmingClear}>
+                <lightning-button
+                  class="slds-m-left_x-small"
+                  label="Clear my history"
+                  onclick={handleClearHistoryClick}
+                  disabled={historyBusy}
+                ></lightning-button>
+              </template>
+              <template if:true={isConfirmingClear}>
+                <lightning-button
+                  class="slds-m-left_x-small"
+                  variant="destructive"
+                  label="Yes, delete all my history"
+                  onclick={handleClearHistoryConfirm}
+                  disabled={historyBusy}
+                ></lightning-button>
+                <lightning-button
+                  class="slds-m-left_x-small"
+                  label="Cancel"
+                  onclick={handleClearHistoryCancel}
+                ></lightning-button>
+              </template>
+            </div>
+
+            <template if:true={hasHistoryRows}>
+              <lightning-datatable
+                key-field="Id"
+                data={historyRows}
+                columns={historyColumns}
+                hide-checkbox-column="true"
+                onrowaction={handleHistoryRowAction}
+              >
+              </lightning-datatable>
+            </template>
+
+            <template if:true={historyIsEmpty}>
+              <p class="slds-text-body_small slds-text-color_weak">
+                No query history yet. Runs are logged automatically.
+              </p>
+            </template>
+
+            <template if:true={historyBusy}>
+              <lightning-spinner
+                alternative-text="Loading history"
+                size="small"
+              ></lightning-spinner>
+            </template>
+          </lightning-accordion-section>
+        </lightning-accordion>
+      </div>
+
+      <template if:true={isBusy}>
+        <lightning-spinner
+          alternative-text="Working"
+          size="small"
+        ></lightning-spinner>
+      </template>
+    </div>
+  </lightning-card>
 </template>
