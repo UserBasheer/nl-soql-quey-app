@@ -64,91 +64,103 @@ private class QueryHistoryServiceTest {
 
   // --- logRun: success / error / swallow ------------------------------------------------
 
+  // NOTE: Metadata-API-deployed custom fields on SOQL_Query_History__c grant FLS to nobody
+  // (this repo ships no profiles/ directory), and QueryHistoryService runs everything under
+  // AccessLevel.USER_MODE / WITH USER_MODE. Every test below that touches
+  // SOQL_Query_History__c (directly or via QueryHistoryService) must run as a user with the
+  // SOQL_Whisperer_User permission set assigned (created in @TestSetup above), or its SOQL
+  // and DML will fail FLS checks even though the running admin created the field.
   @isTest
   static void logRunSuccessInsertsRecordWithExpectedFields() {
-    Test.startTest();
-    QueryHistoryService.logRun(
-      'SELECT Id FROM Account',
-      'show me accounts',
-      new List<String>{ 'Account', 'Contact' },
-      3,
-      QueryHistoryService.STATUS_SUCCESS,
-      null
-    );
-    Test.stopTest();
+    User testUser = queryTestUser('qhsvcA');
+    System.runAs(testUser) {
+      Test.startTest();
+      QueryHistoryService.logRun(
+        'SELECT Id FROM Account',
+        'show me accounts',
+        new List<String>{ 'Account', 'Contact' },
+        3,
+        QueryHistoryService.STATUS_SUCCESS,
+        null
+      );
+      Test.stopTest();
 
-    List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(5);
-    Assert.areEqual(
-      1,
-      recent.size(),
-      'logRun() with valid Success inputs should insert exactly one history record.'
-    );
-    SOQL_Query_History__c entry = recent[0];
-    Assert.areEqual(
-      'SELECT Id FROM Account',
-      entry.SOQL__c,
-      'The inserted record should store the exact SOQL text passed to logRun().'
-    );
-    Assert.areEqual(
-      'show me accounts',
-      entry.Natural_Language__c,
-      'The inserted record should store the natural language prompt passed to logRun().'
-    );
-    Assert.areEqual(
-      'Account,Contact',
-      entry.Object_Scope__c,
-      'Object scope should be comma-joined in the order supplied.'
-    );
-    Assert.areEqual(
-      3,
-      Integer.valueOf(entry.Row_Count__c),
-      'Row_Count__c should reflect the rowCount argument.'
-    );
-    Assert.areEqual(
-      QueryHistoryService.STATUS_SUCCESS,
-      entry.Status__c,
-      'Status__c should be exactly "Success" for a successful run.'
-    );
-    Assert.isNull(
-      entry.Error_Message__c,
-      'A successful run should not populate Error_Message__c.'
-    );
+      List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(5);
+      Assert.areEqual(
+        1,
+        recent.size(),
+        'logRun() with valid Success inputs should insert exactly one history record.'
+      );
+      SOQL_Query_History__c entry = recent[0];
+      Assert.areEqual(
+        'SELECT Id FROM Account',
+        entry.SOQL__c,
+        'The inserted record should store the exact SOQL text passed to logRun().'
+      );
+      Assert.areEqual(
+        'show me accounts',
+        entry.Natural_Language__c,
+        'The inserted record should store the natural language prompt passed to logRun().'
+      );
+      Assert.areEqual(
+        'Account,Contact',
+        entry.Object_Scope__c,
+        'Object scope should be comma-joined in the order supplied.'
+      );
+      Assert.areEqual(
+        3,
+        Integer.valueOf(entry.Row_Count__c),
+        'Row_Count__c should reflect the rowCount argument.'
+      );
+      Assert.areEqual(
+        QueryHistoryService.STATUS_SUCCESS,
+        entry.Status__c,
+        'Status__c should be exactly "Success" for a successful run.'
+      );
+      Assert.isNull(
+        entry.Error_Message__c,
+        'A successful run should not populate Error_Message__c.'
+      );
+    }
   }
 
   @isTest
   static void logRunErrorInsertsRecordWithErrorMessage() {
-    Test.startTest();
-    QueryHistoryService.logRun(
-      'SELECT Id FROM Contact',
-      'bad query',
-      new List<String>{ 'Contact' },
-      0,
-      QueryHistoryService.STATUS_ERROR,
-      'Query failed: some reason'
-    );
-    Test.stopTest();
+    User testUser = queryTestUser('qhsvcA');
+    System.runAs(testUser) {
+      Test.startTest();
+      QueryHistoryService.logRun(
+        'SELECT Id FROM Contact',
+        'bad query',
+        new List<String>{ 'Contact' },
+        0,
+        QueryHistoryService.STATUS_ERROR,
+        'Query failed: some reason'
+      );
+      Test.stopTest();
 
-    List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(5);
-    Assert.areEqual(
-      1,
-      recent.size(),
-      'logRun() with Error status should still insert a history record.'
-    );
-    Assert.areEqual(
-      QueryHistoryService.STATUS_ERROR,
-      recent[0].Status__c,
-      'Status__c should be exactly "Error" for a failed run.'
-    );
-    Assert.areEqual(
-      'Query failed: some reason',
-      recent[0].Error_Message__c,
-      'Error_Message__c should store the exception message passed to logRun().'
-    );
-    Assert.areEqual(
-      0,
-      Integer.valueOf(recent[0].Row_Count__c),
-      'A failed run should log a row count of 0.'
-    );
+      List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(5);
+      Assert.areEqual(
+        1,
+        recent.size(),
+        'logRun() with Error status should still insert a history record.'
+      );
+      Assert.areEqual(
+        QueryHistoryService.STATUS_ERROR,
+        recent[0].Status__c,
+        'Status__c should be exactly "Error" for a failed run.'
+      );
+      Assert.areEqual(
+        'Query failed: some reason',
+        recent[0].Error_Message__c,
+        'Error_Message__c should store the exception message passed to logRun().'
+      );
+      Assert.areEqual(
+        0,
+        Integer.valueOf(recent[0].Row_Count__c),
+        'A failed run should log a row count of 0.'
+      );
+    }
   }
 
   /**
@@ -167,28 +179,31 @@ private class QueryHistoryServiceTest {
    */
   @isTest
   static void logRunSwallowsInsertFailureAndDoesNotThrow() {
-    Integer countBefore = QueryHistoryService.getRecent(200).size();
+    User testUser = queryTestUser('qhsvcA');
+    System.runAs(testUser) {
+      Integer countBefore = QueryHistoryService.getRecent(200).size();
 
-    Test.startTest();
-    // Blank soql -> truncate() returns null -> required-field DML failure inside logRun(),
-    // caught and swallowed. No try/catch here: a rethrow would fail this test.
-    QueryHistoryService.logRun(
-      null,
-      'irrelevant',
-      new List<String>{ 'Account' },
-      0,
-      QueryHistoryService.STATUS_ERROR,
-      'boom'
-    );
-    Test.stopTest();
+      Test.startTest();
+      // Blank soql -> truncate() returns null -> required-field DML failure inside logRun(),
+      // caught and swallowed. No try/catch here: a rethrow would fail this test.
+      QueryHistoryService.logRun(
+        null,
+        'irrelevant',
+        new List<String>{ 'Account' },
+        0,
+        QueryHistoryService.STATUS_ERROR,
+        'boom'
+      );
+      Test.stopTest();
 
-    Integer countAfter = QueryHistoryService.getRecent(200).size();
-    Assert.areEqual(
-      countBefore,
-      countAfter,
-      'logRun() must swallow a DML failure (missing required SOQL__c) without inserting a ' +
-      'row and without throwing to the caller.'
-    );
+      Integer countAfter = QueryHistoryService.getRecent(200).size();
+      Assert.areEqual(
+        countBefore,
+        countAfter,
+        'logRun() must swallow a DML failure (missing required SOQL__c) without inserting a ' +
+        'row and without throwing to the caller.'
+      );
+    }
   }
 
   @isTest
@@ -204,122 +219,131 @@ private class QueryHistoryServiceTest {
       'w'.repeat(600)
     };
 
-    Test.startTest();
-    QueryHistoryService.logRun(
-      longSoql,
-      longNl,
-      longScope,
-      1,
-      QueryHistoryService.STATUS_ERROR,
-      longError
-    );
-    Test.stopTest();
+    User testUser = queryTestUser('qhsvcA');
+    System.runAs(testUser) {
+      Test.startTest();
+      QueryHistoryService.logRun(
+        longSoql,
+        longNl,
+        longScope,
+        1,
+        QueryHistoryService.STATUS_ERROR,
+        longError
+      );
+      Test.stopTest();
 
-    List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(1);
-    Assert.areEqual(
-      1,
-      recent.size(),
-      'An over-length input should be truncated and still insert successfully.'
-    );
-    SOQL_Query_History__c entry = recent[0];
-    Assert.areEqual(
-      5000,
-      entry.SOQL__c.length(),
-      'SOQL__c should be truncated to the field length (5000) rather than failing the insert.'
-    );
-    Assert.areEqual(
-      1000,
-      entry.Natural_Language__c.length(),
-      'Natural_Language__c should be truncated to the field length (1000).'
-    );
-    Assert.areEqual(
-      1000,
-      entry.Object_Scope__c.length(),
-      'Object_Scope__c should be truncated to the field length (1000) even though the joined ' +
-      'scope string was longer.'
-    );
-    Assert.areEqual(
-      255,
-      entry.Error_Message__c.length(),
-      'Error_Message__c should be truncated to the field length (255).'
-    );
+      List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(1);
+      Assert.areEqual(
+        1,
+        recent.size(),
+        'An over-length input should be truncated and still insert successfully.'
+      );
+      SOQL_Query_History__c entry = recent[0];
+      Assert.areEqual(
+        5000,
+        entry.SOQL__c.length(),
+        'SOQL__c should be truncated to the field length (5000) rather than failing the insert.'
+      );
+      Assert.areEqual(
+        1000,
+        entry.Natural_Language__c.length(),
+        'Natural_Language__c should be truncated to the field length (1000).'
+      );
+      Assert.areEqual(
+        1000,
+        entry.Object_Scope__c.length(),
+        'Object_Scope__c should be truncated to the field length (1000) even though the joined ' +
+        'scope string was longer.'
+      );
+      Assert.areEqual(
+        255,
+        entry.Error_Message__c.length(),
+        'Error_Message__c should be truncated to the field length (255).'
+      );
+    }
   }
 
   @isTest
   static void logRunNormalizesUnrecognizedStatusToNullOnInsert() {
-    Test.startTest();
-    QueryHistoryService.logRun(
-      'SELECT Id FROM Account',
-      null,
-      null,
-      1,
-      'Pending',
-      null
-    );
-    Test.stopTest();
+    User testUser = queryTestUser('qhsvcA');
+    System.runAs(testUser) {
+      Test.startTest();
+      QueryHistoryService.logRun(
+        'SELECT Id FROM Account',
+        null,
+        null,
+        1,
+        'Pending',
+        null
+      );
+      Test.stopTest();
 
-    List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(1);
-    Assert.areEqual(
-      1,
-      recent.size(),
-      'logRun() should still insert with an unrecognized status.'
-    );
-    Assert.isNull(
-      recent[0].Status__c,
-      'A status value that is neither Success nor Error should be stored as null rather than ' +
-      'failing the restricted-picklist insert.'
-    );
+      List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(1);
+      Assert.areEqual(
+        1,
+        recent.size(),
+        'logRun() should still insert with an unrecognized status.'
+      );
+      Assert.isNull(
+        recent[0].Status__c,
+        'A status value that is neither Success nor Error should be stored as null rather than ' +
+        'failing the restricted-picklist insert.'
+      );
+    }
   }
 
   // --- getRecent: ordering + limit clamping ----------------------------------------------
 
   @isTest
   static void getRecentOrdersNewestFirst() {
-    QueryHistoryService.logRun(
-      'SELECT Id FROM Account LIMIT 1',
-      null,
-      null,
-      1,
-      'Success',
-      null
-    );
-    QueryHistoryService.logRun(
-      'SELECT Id FROM Account LIMIT 2',
-      null,
-      null,
-      1,
-      'Success',
-      null
-    );
-    QueryHistoryService.logRun(
-      'SELECT Id FROM Account LIMIT 3',
-      null,
-      null,
-      1,
-      'Success',
-      null
-    );
+    User testUser = queryTestUser('qhsvcA');
+    System.runAs(testUser) {
+      QueryHistoryService.logRun(
+        'SELECT Id FROM Account LIMIT 1',
+        null,
+        null,
+        1,
+        'Success',
+        null
+      );
+      QueryHistoryService.logRun(
+        'SELECT Id FROM Account LIMIT 2',
+        null,
+        null,
+        1,
+        'Success',
+        null
+      );
+      QueryHistoryService.logRun(
+        'SELECT Id FROM Account LIMIT 3',
+        null,
+        null,
+        1,
+        'Success',
+        null
+      );
 
-    Test.startTest();
-    List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(10);
-    Test.stopTest();
+      Test.startTest();
+      List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(10);
+      Test.stopTest();
 
-    Assert.areEqual(
-      3,
-      recent.size(),
-      'All three logged runs should be visible to the running user.'
-    );
-    Assert.areEqual(
-      'SELECT Id FROM Account LIMIT 3',
-      recent[0].SOQL__c,
-      'getRecent() orders CreatedDate DESC (tie-broken by Name DESC), so the most recently ' +
-      'logged run must be first.'
-    );
-    Assert.areEqual(
-      'SELECT Id FROM Account LIMIT 1',
-      recent[2].SOQL__c,
-      'The first-logged run should be last in a newest-first ordering.'
-    );
+      Assert.areEqual(
+        3,
+        recent.size(),
+        'All three logged runs should be visible to the running user.'
+      );
+      Assert.areEqual(
+        'SELECT Id FROM Account LIMIT 3',
+        recent[0].SOQL__c,
+        'getRecent() orders CreatedDate DESC (tie-broken by Name DESC), so the most recently ' +
+        'logged run must be first.'
+      );
+      Assert.areEqual(
+        'SELECT Id FROM Account LIMIT 1',
+        recent[2].SOQL__c,
+        'The first-logged run should be last in a newest-first ordering.'
+      );
+    }
   }
 
   @isTest
@@ -374,85 +398,94 @@ private class QueryHistoryServiceTest {
    */
   @isTest
   static void getRecentNeverReturnsMoreThan200RowsRegardlessOfRequestedLimit() {
-    List<SOQL_Query_History__c> manyRecords = new List<SOQL_Query_History__c>();
-    for (Integer i = 0; i < 205; i++) {
-      manyRecords.add(
-        new SOQL_Query_History__c(
-          SOQL__c = 'SELECT Id FROM Account LIMIT ' + i,
-          Status__c = QueryHistoryService.STATUS_SUCCESS,
-          Row_Count__c = 0
-        )
+    User testUser = queryTestUser('qhsvcA');
+    System.runAs(testUser) {
+      List<SOQL_Query_History__c> manyRecords = new List<SOQL_Query_History__c>();
+      for (Integer i = 0; i < 205; i++) {
+        manyRecords.add(
+          new SOQL_Query_History__c(
+            SOQL__c = 'SELECT Id FROM Account LIMIT ' + i,
+            Status__c = QueryHistoryService.STATUS_SUCCESS,
+            Row_Count__c = 0
+          )
+        );
+      }
+      insert manyRecords;
+
+      Test.startTest();
+      List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(9999);
+      Test.stopTest();
+
+      Assert.areEqual(
+        200,
+        recent.size(),
+        'Even with more than 200 rows present and an oversized requested limit, getRecent() ' +
+        'must never return more than the server-side ceiling of 200.'
       );
     }
-    insert manyRecords;
-
-    Test.startTest();
-    List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(9999);
-    Test.stopTest();
-
-    Assert.areEqual(
-      200,
-      recent.size(),
-      'Even with more than 200 rows present and an oversized requested limit, getRecent() ' +
-      'must never return more than the server-side ceiling of 200.'
-    );
   }
 
   // --- clearMine ---------------------------------------------------------------------------
 
   @isTest
   static void clearMineDeletesAllOwnRecordsAndReturnsCount() {
-    QueryHistoryService.logRun(
-      'SELECT Id FROM Account LIMIT 1',
-      null,
-      null,
-      1,
-      'Success',
-      null
-    );
-    QueryHistoryService.logRun(
-      'SELECT Id FROM Account LIMIT 2',
-      null,
-      null,
-      1,
-      'Success',
-      null
-    );
-    QueryHistoryService.logRun(
-      'SELECT Id FROM Account LIMIT 3',
-      null,
-      null,
-      1,
-      'Success',
-      null
-    );
+    User testUser = queryTestUser('qhsvcA');
+    System.runAs(testUser) {
+      QueryHistoryService.logRun(
+        'SELECT Id FROM Account LIMIT 1',
+        null,
+        null,
+        1,
+        'Success',
+        null
+      );
+      QueryHistoryService.logRun(
+        'SELECT Id FROM Account LIMIT 2',
+        null,
+        null,
+        1,
+        'Success',
+        null
+      );
+      QueryHistoryService.logRun(
+        'SELECT Id FROM Account LIMIT 3',
+        null,
+        null,
+        1,
+        'Success',
+        null
+      );
 
-    Test.startTest();
-    Integer deletedCount = QueryHistoryService.clearMine();
-    Test.stopTest();
+      Test.startTest();
+      Integer deletedCount = QueryHistoryService.clearMine();
+      Test.stopTest();
 
-    Assert.areEqual(
-      3,
-      deletedCount,
-      'clearMine() should return the number of records it deleted.'
-    );
-    Assert.isTrue(
-      QueryHistoryService.getRecent(200).isEmpty(),
-      'After clearMine(), the running user should have no remaining history.'
-    );
+      Assert.areEqual(
+        3,
+        deletedCount,
+        'clearMine() should return the number of records it deleted.'
+      );
+      Assert.isTrue(
+        QueryHistoryService.getRecent(200).isEmpty(),
+        'After clearMine(), the running user should have no remaining history.'
+      );
+    }
   }
 
   @isTest
   static void clearMineReturnsZeroWhenNoHistoryExists() {
-    Test.startTest();
-    Integer deletedCount = QueryHistoryService.clearMine();
-    Test.stopTest();
+    User testUser = queryTestUser('qhsvcA');
+    System.runAs(testUser) {
+      Test.startTest();
+      Integer deletedCount = QueryHistoryService.clearMine();
+      Test.stopTest();
 
-    Assert.areEqual(
-      0,
-      deletedCount,
-      'clearMine() with no existing history should delete nothing and return 0.'
-    );
+      Assert.areEqual(
+        0,
+        deletedCount,
+        'clearMine() with no existing history should delete nothing and return 0.'
+      );
+    }
   }
 
   // --- private helper unit tests (@TestVisible) --------------------------------------------
