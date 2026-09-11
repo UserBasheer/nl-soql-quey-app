@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>SOQL Query History</label>
+    <pluralLabel>SOQL Query Histories</pluralLabel>
+    <deploymentStatus>Deployed</deploymentStatus>
+    <description
+  >System-logged record of every SOQL Whisperer query run (success or failure). Stores query text and run metadata only — never result rows. One record per run, written by QueryHistoryService.logRun(). Purged manually only (Clear My History); no scheduled purge in this phase.</description>
+    <externalSharingModel>Private</externalSharingModel>
+    <sharingModel>Private</sharingModel>
+    <enableActivities>false</enableActivities>
+    <enableBulkApi>true</enableBulkApi>
+    <enableFeeds>false</enableFeeds>
+    <enableHistory>false</enableHistory>
+    <enableReports>false</enableReports>
+    <enableSearch>false</enableSearch>
+    <enableSharing>true</enableSharing>
+    <enableStreamingApi>true</enableStreamingApi>
+    <nameField>
+        <displayFormat>QH-{00000000}</displayFormat>
+        <label>Query History Number</label>
+        <startingNumber>1</startingNumber>
+        <type>AutoNumber</type>
+    </nameField>
+</CustomObject>

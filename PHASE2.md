@@ -3,6 +3,7 @@
 Context document for continuing in Claude Code (VS Code).
 
 ## What this project is
+
 A natural-language-to-SOQL editor for Salesforce. Users connect their org, write requests in
 plain English, and the tool generates an executable SOQL query and returns the data. Built as a
 native Salesforce managed package (LWC + Apex), not an external web app or Chrome
@@ -10,6 +11,7 @@ extension — chosen deliberately so the tool runs inside the user's authenticat
 session and inherits their permissions.
 
 ## Hard requirements (do not violate)
+
 - **STRICTLY READ-ONLY.** Never add insert/update/delete/upsert/merge paths anywhere.
   Read-only is enforced in two independent layers and both must stay.
 - **Permission-aware.** Queries run in user mode so field-level security and sharing are
@@ -21,14 +23,17 @@ session and inherits their permissions.
   uses the external path.
 
 ## Current architecture (Phase 1 — complete & deployed)
+
 All under `force-app/main/default/`
 
 ### LWC: soqlWhisperer
+
 - UI: natural-language input, editable SOQL box, validation banner, results datatable.
   Calls the Apex controller. `objectScope` is currently hardcoded to five common objects —
   this is a known limitation, see Phase 3.
 
 ### Apex classes
+
 - **SoqlWhispererController** — `@AuraEnabled` orchestration exposed to the LWC
   (`getObjects`, `getFields`, `generateQuery`, `refineQuery`, `validateQuery`, `runQuery`).
 - **SchemaService** — native describe introspection (`Schema.getGlobalDescribe`). Filters on
@@ -47,13 +52,16 @@ All under `force-app/main/default/`
   intended to read an admin setting per org.
 
 ## What works now vs. what doesn't
+
 - **WORKS after deploy:** schema introspection, SOQL validation, query execution, results
   table, permission scoping. You can type SOQL directly and run it.
 - **DOES NOT WORK yet:** the Generate and Refine buttons. The Claude path needs the
   Named Credential auth configured in the org; the Einstein path is stubbed.
 
 ## Phase 2 — the goal
+
 Make natural-language translation actually work end-to-end. Recommended order:
+
 1. Wire the Claude callout path: configure the External Credential + Named Credential auth
    (`x-api-key` header) in the org, then verify `generateQuery` returns valid SOQL from a
    plain-English request.
@@ -67,22 +75,30 @@ Make natural-language translation actually work end-to-end. Recommended order:
    pass `QueryService.validate()` before execution. Never run unvalidated model output.
 
 ## Suggested first commands
+
 ```
 sf project deploy start
 sf apex run test --tests QueryServiceTest --result-format human
 ```
+
 Then configure the Named Credential auth in the org and exercise the Generate button against
 the connected Developer Edition org.
 
 ## Open items being tracked
+
 - Einstein Models API implementation (stubbed).
 - Provider toggle via custom metadata.
 - PHI / data-egress security review before any Health Cloud org uses the external Claude
   path.
 - Large-org schema-subset retrieval (replace the hardcoded `objectScope`) — Phase 3.
-- Result export, query history, saved queries — Phase 3 polish.
+- ~~Result export, query history, saved queries — Phase 3 polish.~~ **Done — Phase 4**
+  (`docs/2026-09-10-phase-4-export-history-saved-queries.md`).
+- Phase 5 backlog (carried forward from Phase 4): scheduled history purge; durable
+  failed-run history logging via a `PublishImmediately` platform event; optional
+  team-shared saved queries via an explicit `Is_Shared__c` decision.
 
 ## A note on suggesting changes
+
 If a simpler or better approach than what's described here becomes apparent while building —
 say so rather than following this document literally. The read-only and permission/PHI
 requirements are firm; most other choices are open to improvement.
