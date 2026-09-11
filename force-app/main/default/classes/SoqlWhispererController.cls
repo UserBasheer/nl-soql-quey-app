@@ -57,6 +57,12 @@ public with sharing class SoqlWhispererController {
    *
    * Logging can never block results: QueryHistoryService.logRun swallows its own failures,
    * and logSafely below guards the call a second time.
+   *
+   * Known limitation: the error-path log shares this transaction, and rethrowing out of an
+   * @AuraEnabled method rolls that transaction back — so a failed run is logged best-effort
+   * only. Preserving the LWC's exception contract was judged more important; making failed
+   * runs durable needs an out-of-band write (e.g. a platform event published immediately),
+   * which is out of Phase 4 scope. See docs/design-patterns/QueryHistoryService-patterns.md.
    */
   @AuraEnabled
   public static List<SObject> runQuery(
