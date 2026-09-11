@@ -46,7 +46,6 @@
                 <field>SOQL__c</field>
             </layoutItems>
         </layoutColumns>
-        <layoutColumns />
         <style>OneColumn</style>
     </layoutSections>
     <showEmailCheckbox>false</showEmailCheckbox>

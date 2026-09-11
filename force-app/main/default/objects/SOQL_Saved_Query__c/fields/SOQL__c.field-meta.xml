@@ -5,7 +5,7 @@
     <type>LongTextArea</type>
     <length>5000</length>
     <visibleLines>10</visibleLines>
-    <required>true</required>
+    <required>false</required>
     <description
   >The saved SOQL text. Query text/metadata only — never result rows.</description>
 </CustomField>
