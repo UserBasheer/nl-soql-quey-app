@@ -265,10 +265,12 @@ private class SoqlWhispererControllerTest {
    * this test catches the exception *inside the test method*, the same way the real
    * @AuraEnabled boundary would see it (the exception still propagates out of runQuery();
    * we are simply the caller here instead of the Lightning runtime). Catching it here does
-   * NOT commit or roll back anything; it just observes that:
-   *   1) the original QueryException still propagates unchanged (the LWC's error handling
-   *      contract is preserved), and
-   *   2) logRun() was actually invoked with Error/0/the exception message.
+   * NOT commit or roll back anything; the single assertion below only proves that the
+   * original QueryException still propagates unchanged out of runQuery() on a failed run —
+   * i.e. the history-logging attempt in the error path does not swallow or replace the
+   * user-facing exception (the LWC's error handling contract is preserved). This test does
+   * NOT assert that logRun() was invoked or with what arguments; QueryHistoryService has no
+   * @TestVisible hook that would let it do so cheaply without touching persistence.
    *
    * This test intentionally does NOT assert that the row is present via getRecent() after
    * the fact, and it must never be changed to do so. In a real transaction, the rethrow
@@ -280,7 +282,7 @@ private class SoqlWhispererControllerTest {
    * PublishImmediately), tracked as a Phase 5 candidate, not a change to this test.
    */
   @isTest
-  static void runQueryFailurePropagatesOriginalExceptionAndAttemptsToLogError() {
+  static void runQueryFailurePropagatesOriginalException() {
     QueryService.QueryException caught;
 
     Test.startTest();
