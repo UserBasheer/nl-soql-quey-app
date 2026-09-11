@@ -1,6 +1,6 @@
 # Phase 4 — Result Export, Query History, Saved Queries
 
-**Date:** 2026-09-10
+**Date:** 2026-09-10 (metadata corrected 2026-09-11, see "Post-merge metadata corrections" below)
 **Status:** Completed (code review APPROVED, no warnings) — awaiting PR merge + devops deploy
 **Branch:** feature/2026-09-10-export-history-saved-queries (off `main` @ 53b997a, PR #4 merged)
 
@@ -36,23 +36,23 @@ introduced anywhere in this phase.
 
 ### Admin (declarative)
 
-| Type              | API name                                          | Description                                                                                                                                                                                        |
-| ----------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Custom object     | `SOQL_Query_History__c`                           | System-logged record of every query run (success or failure). OWD Private (internal and external). Name = Auto Number `QH-{00000000}`. Reports/Activities/History tracking/Search all disabled.    |
-| Custom field      | `SOQL_Query_History__c.SOQL__c`                   | Long Text Area (5000), required — the SOQL that was run.                                                                                                                                           |
-| Custom field      | `SOQL_Query_History__c.Natural_Language__c`       | Long Text Area (1000) — the originating prompt; null for a directly-typed/edited SOQL run.                                                                                                         |
-| Custom field      | `SOQL_Query_History__c.Object_Scope__c`           | Long Text Area (1000) — comma-separated API names of the objects the run was grounded on.                                                                                                          |
-| Custom field      | `SOQL_Query_History__c.Row_Count__c`              | Number(9,0) — rows returned; `0` on error.                                                                                                                                                         |
-| Custom field      | `SOQL_Query_History__c.Status__c`                 | Restricted picklist, values exactly `Success` / `Error`.                                                                                                                                           |
-| Custom field      | `SOQL_Query_History__c.Error_Message__c`          | Text(255) — exception message only, truncated. Never contains result data.                                                                                                                         |
-| Custom object     | `SOQL_Saved_Query__c`                             | User-named, permanent saved query. OWD Private (internal and external). Name = Text, label "Saved Query Name", required, **not** unique (uniqueness is org-wide; per-user dedupe happens in Apex). |
-| Custom field      | `SOQL_Saved_Query__c.SOQL__c`                     | Long Text Area (5000), required.                                                                                                                                                                   |
-| Custom field      | `SOQL_Saved_Query__c.Natural_Language__c`         | Long Text Area (1000) — originating prompt, restored on load.                                                                                                                                      |
-| Custom field      | `SOQL_Saved_Query__c.Object_Scope__c`             | Long Text Area (1000) — comma-separated object API names, restored on load so a subsequent Refine is grounded the same way.                                                                        |
-| Page layout       | `SOQL_Query_History__c-SOQL Query History Layout` | All fields, no tabs — records are surfaced only through the LWC.                                                                                                                                   |
-| Page layout       | `SOQL_Saved_Query__c-SOQL Saved Query Layout`     | All fields, no tabs.                                                                                                                                                                               |
-| Custom permission | `Export_Query_Results`                            | Gates the "Export CSV" button in the LWC.                                                                                                                                                          |
-| Permission set    | `SOQL_Whisperer_User`                             | Required post-deploy assignment — see "Deployment / setup" below.                                                                                                                                  |
+| Type              | API name                                          | Description                                                                                                                                                                                                                                                                                                                        |
+| ----------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Custom object     | `SOQL_Query_History__c`                           | System-logged record of every query run (success or failure). OWD Private (internal and external). Name = Auto Number `QH-{00000000}`. Reports/Activities/History tracking/Search all disabled.                                                                                                                                    |
+| Custom field      | `SOQL_Query_History__c.SOQL__c`                   | Long Text Area (5000), **not** platform-required — the SOQL that was run. See "Post-merge metadata corrections" below: the platform rejects `required=true` on a LongTextArea field, so this field can hold `null` on the error-logging path; there is no supported path that inserts a blank/non-error history row.               |
+| Custom field      | `SOQL_Query_History__c.Natural_Language__c`       | Long Text Area (1000) — the originating prompt; null for a directly-typed/edited SOQL run.                                                                                                                                                                                                                                         |
+| Custom field      | `SOQL_Query_History__c.Object_Scope__c`           | Long Text Area (1000) — comma-separated API names of the objects the run was grounded on.                                                                                                                                                                                                                                          |
+| Custom field      | `SOQL_Query_History__c.Row_Count__c`              | Number(9,0) — rows returned; `0` on error.                                                                                                                                                                                                                                                                                         |
+| Custom field      | `SOQL_Query_History__c.Status__c`                 | Restricted picklist, values exactly `Success` / `Error`.                                                                                                                                                                                                                                                                           |
+| Custom field      | `SOQL_Query_History__c.Error_Message__c`          | Text(255) — exception message only, truncated. Never contains result data.                                                                                                                                                                                                                                                         |
+| Custom object     | `SOQL_Saved_Query__c`                             | User-named, permanent saved query. OWD Private (internal and external). Name = Text, label "Saved Query Name", required, **not** unique (uniqueness is org-wide; per-user dedupe happens in Apex).                                                                                                                                 |
+| Custom field      | `SOQL_Saved_Query__c.SOQL__c`                     | Long Text Area (5000), **not** platform-required (the platform rejects `required=true` on a LongTextArea field — see "Post-merge metadata corrections" below); a blank/null value can never reach this field through the supported path because `SavedQueryService.saveQuery` throws before any DML if the SOQL argument is blank. |
+| Custom field      | `SOQL_Saved_Query__c.Natural_Language__c`         | Long Text Area (1000) — originating prompt, restored on load.                                                                                                                                                                                                                                                                      |
+| Custom field      | `SOQL_Saved_Query__c.Object_Scope__c`             | Long Text Area (1000) — comma-separated object API names, restored on load so a subsequent Refine is grounded the same way.                                                                                                                                                                                                        |
+| Page layout       | `SOQL_Query_History__c-SOQL Query History Layout` | All fields, no tabs — records are surfaced only through the LWC.                                                                                                                                                                                                                                                                   |
+| Page layout       | `SOQL_Saved_Query__c-SOQL Saved Query Layout`     | All fields, no tabs.                                                                                                                                                                                                                                                                                                               |
+| Custom permission | `Export_Query_Results`                            | Gates the "Export CSV" button in the LWC.                                                                                                                                                                                                                                                                                          |
+| Permission set    | `SOQL_Whisperer_User`                             | Required post-deploy assignment — see "Deployment / setup" below.                                                                                                                                                                                                                                                                  |
 
 ### Development (code)
 
@@ -309,11 +309,12 @@ without it:
   history panel simply stays empty**, with no error shown to the user. Saved queries and the
   export button behave the same way (empty saved-query list; export button hidden because the
   `Export_Query_Results` custom permission isn't granted).
-- The permission set grants: Read/Create/Delete (no Edit — history rows are immutable) on
-  `SOQL_Query_History__c`; full CRUD on `SOQL_Saved_Query__c`; Read+Edit field permissions on
-  every custom field on both objects; Apex class access to `SoqlWhispererController`,
-  `QueryHistoryService`, `SavedQueryService`; and the `Export_Query_Results` custom
-  permission.
+- The permission set grants: Read/Create/Delete/**Edit** on `SOQL_Query_History__c` (Edit was
+  added post-merge — see "Post-merge metadata corrections" below, it is platform-required and
+  does **not** mean history rows are actually editable in practice); full CRUD on
+  `SOQL_Saved_Query__c`; Read+Edit field permissions on every custom field on both objects; Apex
+  class access to `SoqlWhispererController`, `QueryHistoryService`, `SavedQueryService`; and the
+  `Export_Query_Results` custom permission.
 - **If a user reports "history/saved queries aren't showing up," the first thing to check is
   whether `SOQL_Whisperer_User` is assigned** — this is the expected first symptom of a
   missing assignment, not a bug.
@@ -375,8 +376,55 @@ No scheduled jobs, batch classes, or additional configuration are introduced by 
 
 ---
 
+## Post-merge metadata corrections (2026-09-11)
+
+Scratch-org deploy validation of Phase 4 failed with 3 platform-validation errors, all in
+admin metadata (no Apex/LWC involved). Branch `feature/2026-09-11-phase4-metadata-fix`, commit
+`a2c6ccd` (5 files), fixed all three; code review re-verified and re-**APPROVED** with no
+warnings (see `agent-output/review-verdict.md`). The corrected statements earlier in this doc
+already reflect the fixed state; this section explains what changed and why.
+
+1. **`SOQL__c` field no longer marked `required` on either object.** The platform rejects
+   `required=true` on a LongTextArea field outright — this was never deployable, not a design
+   choice. `<required>` was flipped to `false` on `SOQL_Query_History__c.SOQL__c` and
+   `SOQL_Saved_Query__c.SOQL__c`. Blank-SOQL enforcement was already living in Apex and needed
+   no change: `SavedQueryService.saveQuery` throws before any DML if the SOQL argument is
+   blank, so a saved query can never be persisted blank through the supported path. On the
+   history side, `QueryHistoryService.logRun`'s error-logging path can legitimately write a
+   `null` `SOQL__c` (e.g. when `QueryService.validate()` rejects an empty query before it
+   executes) — this is harmless, since `SOQL_Query_History__c` is the tool's own internal log
+   object, never queried org data, and the row still carries `Error_Message__c` so the failure
+   isn't silently lost.
+2. **Trailing empty `<layoutColumns />` removed** from the `OneColumn` "SOQL" section on both
+   Phase 4 page layouts (platform error: "Too many columns for section style"). Purely
+   cosmetic/structural; no field visibility changed.
+3. **`allowEdit` set to `true` on `SOQL_Query_History__c`** in the `SOQL_Whisperer_User`
+   permission set. The platform requires Edit access before it will grant Delete, and
+   `QueryHistoryService.clearMine()` needs Delete under `AccessLevel.USER_MODE` — so this was
+   also never deployable as originally written, not a scope change.
+   - **Design consequence for future maintainers:** history-row immutability is **no longer
+     platform-enforced by FLS**. It now holds only by convention: there is no update path
+     against `SOQL_Query_History__c` anywhere in Apex or the LWC (`QueryHistoryService` exposes
+     only `logRun`/insert and `clearMine`/delete; `SoqlWhispererController` has no history
+     update passthrough; `soqlWhisperer.js` has no update call). If a future change adds an
+     "edit history row" method, nothing in the permission set will stop it — the permission set
+     alone can no longer be relied on to prove history rows can't be mutated after insert.
+     Anyone touching `QueryHistoryService.cls` or the history data model should treat
+     "history is insert/delete-only" as an intentional design rule to preserve, not something
+     the platform still guarantees. (Flagged as a non-blocking suggestion by code review; a
+     guard comment on the class, or a `before update`-always-fails validation rule if this ever
+     becomes trigger-driven, would restore a platform-level check — deferred as a Phase 5
+     candidate, out of scope for this metadata-only fix.)
+
+The "Security" and "Deployment / setup" sections above, and the affected rows in "Components
+created", have been updated in place to reflect these three fixes rather than the pre-fix
+metadata.
+
+---
+
 ## Change history
 
-| Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-09-10 | Initial creation — Phase 4 (result export, query history, saved queries). Two new custom objects + layouts + custom permission + permission set (admin), `QueryHistoryService`/`SavedQueryService`/controller changes + LWC export/saved-query/history UI + two design pattern docs (developer), full Apex + Jest test suites including two-user `System.runAs` isolation tests (unit testing), code review APPROVED with no warnings outstanding. |
+| Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-09-10 | Initial creation — Phase 4 (result export, query history, saved queries). Two new custom objects + layouts + custom permission + permission set (admin), `QueryHistoryService`/`SavedQueryService`/controller changes + LWC export/saved-query/history UI + two design pattern docs (developer), full Apex + Jest test suites including two-user `System.runAs` isolation tests (unit testing), code review APPROVED with no warnings outstanding.                                                                                      |
+| 2026-09-11 | Post-merge metadata fix (scratch-org deploy validation failure) — `required=false` on both `SOQL__c` fields, removed a trailing empty `<layoutColumns />` from both Phase 4 layouts, `allowEdit=true` on `SOQL_Query_History__c` in `SOQL_Whisperer_User` (platform-required for `clearMine()`'s delete). 5 files, metadata-only, no Apex/LWC changed. Code review re-APPROVED, no warnings. History-row immutability is now enforced by convention (no update path in code), not by FLS — see "Post-merge metadata corrections" above. |

@@ -106,9 +106,12 @@ queries are low-volume, user-named and permanent. The decisive argument is blast
 retention purge scoped to a dedicated history object **cannot** delete a user's saved work,
 however wrong its `WHERE` clause. With one object plus a type flag, one missing predicate in a
 future purge irrecoverably destroys saved queries. Three duplicated fields buys structural
-immunity to that entire class of bug. The permission model differs too — history is
-Read/Create/Delete with no Edit (it is immutable), saved queries are full CRUD — which one
-object could not express.
+immunity to that entire class of bug. The permission model differs too — history grants
+Read/Create/Delete/Edit (Edit was added post-merge on 2026-09-11 only because the platform
+requires it before granting Delete, which `clearMine()` needs under `USER_MODE`; immutability
+is enforced by convention — no update method exists against `SOQL_Query_History__c` anywhere in
+Apex or the LWC — not by FLS), saved queries are full CRUD used as designed — which one object
+could not cleanly express.
 
 ## Trade-offs
 
