@@ -124,115 +124,131 @@ private class SavedQueryServiceTest {
   }
 
   // --- saveQuery: create / overwrite -------------------------------------------------------
+  //
+  // NOTE: Metadata-API-deployed custom fields on SOQL_Saved_Query__c grant FLS to nobody
+  // (this repo ships no profiles/ directory), and SavedQueryService runs everything under
+  // AccessLevel.USER_MODE / WITH USER_MODE. Every test below that touches
+  // SOQL_Saved_Query__c (directly or via SavedQueryService) must run as a user with the
+  // SOQL_Whisperer_User permission set assigned (created in @TestSetup above), or its SOQL
+  // and DML will fail FLS checks even though the running admin created the field.
 
   @isTest
   static void saveQueryCreatesNewRecordWhenNoneExists() {
-    Test.startTest();
-    SOQL_Saved_Query__c saved = SavedQueryService.saveQuery(
-      'My Accounts',
-      'SELECT Id FROM Account',
-      'list accounts',
-      new List<String>{ 'Account' }
-    );
-    Test.stopTest();
+    User testUser = queryTestUser('sqsvcA');
+    System.runAs(testUser) {
+      Test.startTest();
+      SOQL_Saved_Query__c saved = SavedQueryService.saveQuery(
+        'My Accounts',
+        'SELECT Id FROM Account',
+        'list accounts',
+        new List<String>{ 'Account' }
+      );
+      Test.stopTest();
 
-    Assert.isNotNull(
-      saved.Id,
-      'saveQuery() should insert and return a persisted record.'
-    );
-    List<SOQL_Saved_Query__c> mine = SavedQueryService.listMine();
-    Assert.areEqual(
-      1,
-      mine.size(),
-      'A single saveQuery() call should result in one saved query.'
-    );
-    Assert.areEqual(
-      'My Accounts',
-      mine[0].Name,
-      'The saved record should have the supplied name.'
-    );
-    Assert.areEqual(
-      'SELECT Id FROM Account',
-      mine[0].SOQL__c,
-      'The saved record should have the supplied SOQL.'
-    );
-    Assert.areEqual(
-      'Account',
-      mine[0].Object_Scope__c,
-      'The saved record should have the joined object scope.'
-    );
+      Assert.isNotNull(
+        saved.Id,
+        'saveQuery() should insert and return a persisted record.'
+      );
+      List<SOQL_Saved_Query__c> mine = SavedQueryService.listMine();
+      Assert.areEqual(
+        1,
+        mine.size(),
+        'A single saveQuery() call should result in one saved query.'
+      );
+      Assert.areEqual(
+        'My Accounts',
+        mine[0].Name,
+        'The saved record should have the supplied name.'
+      );
+      Assert.areEqual(
+        'SELECT Id FROM Account',
+        mine[0].SOQL__c,
+        'The saved record should have the supplied SOQL.'
+      );
+      Assert.areEqual(
+        'Account',
+        mine[0].Object_Scope__c,
+        'The saved record should have the joined object scope.'
+      );
+    }
   }
 
   @isTest
   static void saveQueryOverwritesExistingRecordWithSameName() {
-    SOQL_Saved_Query__c first = SavedQueryService.saveQuery(
-      'My Accounts',
-      'SELECT Id FROM Account',
-      'first version',
-      new List<String>{ 'Account' }
-    );
+    User testUser = queryTestUser('sqsvcA');
+    System.runAs(testUser) {
+      SOQL_Saved_Query__c first = SavedQueryService.saveQuery(
+        'My Accounts',
+        'SELECT Id FROM Account',
+        'first version',
+        new List<String>{ 'Account' }
+      );
 
-    Test.startTest();
-    SOQL_Saved_Query__c second = SavedQueryService.saveQuery(
-      'My Accounts',
-      'SELECT Id, Name FROM Account WHERE Name != null',
-      'second version',
-      new List<String>{ 'Account', 'Contact' }
-    );
-    Test.stopTest();
+      Test.startTest();
+      SOQL_Saved_Query__c second = SavedQueryService.saveQuery(
+        'My Accounts',
+        'SELECT Id, Name FROM Account WHERE Name != null',
+        'second version',
+        new List<String>{ 'Account', 'Contact' }
+      );
+      Test.stopTest();
 
-    List<SOQL_Saved_Query__c> mine = SavedQueryService.listMine();
-    Assert.areEqual(
-      1,
-      mine.size(),
-      'Saving under the same name a second time must overwrite, not duplicate: the record ' +
-      'count must stay at 1.'
-    );
-    Assert.areEqual(
-      first.Id,
-      second.Id,
-      'The overwrite must update the existing record (same Id), not insert a new one.'
-    );
-    Assert.areEqual(
-      'SELECT Id, Name FROM Account WHERE Name != null',
-      mine[0].SOQL__c,
-      'The SOQL on the existing record should be updated to the newly saved value.'
-    );
-    Assert.areEqual(
-      'second version',
-      mine[0].Natural_Language__c,
-      'The natural language prompt on the existing record should be updated.'
-    );
-    Assert.areEqual(
-      'Account,Contact',
-      mine[0].Object_Scope__c,
-      'The object scope on the existing record should be updated.'
-    );
+      List<SOQL_Saved_Query__c> mine = SavedQueryService.listMine();
+      Assert.areEqual(
+        1,
+        mine.size(),
+        'Saving under the same name a second time must overwrite, not duplicate: the record ' +
+        'count must stay at 1.'
+      );
+      Assert.areEqual(
+        first.Id,
+        second.Id,
+        'The overwrite must update the existing record (same Id), not insert a new one.'
+      );
+      Assert.areEqual(
+        'SELECT Id, Name FROM Account WHERE Name != null',
+        mine[0].SOQL__c,
+        'The SOQL on the existing record should be updated to the newly saved value.'
+      );
+      Assert.areEqual(
+        'second version',
+        mine[0].Natural_Language__c,
+        'The natural language prompt on the existing record should be updated.'
+      );
+      Assert.areEqual(
+        'Account,Contact',
+        mine[0].Object_Scope__c,
+        'The object scope on the existing record should be updated.'
+      );
+    }
   }
 
   @isTest
   static void saveQueryDifferentNameCreatesSeparateRecord() {
-    SavedQueryService.saveQuery(
-      'Query One',
-      'SELECT Id FROM Account',
-      null,
-      null
-    );
+    User testUser = queryTestUser('sqsvcA');
+    System.runAs(testUser) {
+      SavedQueryService.saveQuery(
+        'Query One',
+        'SELECT Id FROM Account',
+        null,
+        null
+      );
 
-    Test.startTest();
-    SavedQueryService.saveQuery(
-      'Query Two',
-      'SELECT Id FROM Contact',
-      null,
-      null
-    );
-    Test.stopTest();
+      Test.startTest();
+      SavedQueryService.saveQuery(
+        'Query Two',
+        'SELECT Id FROM Contact',
+        null,
+        null
+      );
+      Test.stopTest();
 
-    Assert.areEqual(
-      2,
-      SavedQueryService.listMine().size(),
-      'Saving under a different name must create a separate record rather than overwriting.'
-    );
+      Assert.areEqual(
+        2,
+        SavedQueryService.listMine().size(),
+        'Saving under a different name must create a separate record rather than overwriting.'
+      );
+    }
   }
 
   @isTest
@@ -248,112 +264,136 @@ private class SavedQueryServiceTest {
       'o'.repeat(600)
     };
 
-    Test.startTest();
-    SavedQueryService.saveQuery(longName, longSoql, longNl, longScope);
-    Test.stopTest();
+    User testUser = queryTestUser('sqsvcA');
+    System.runAs(testUser) {
+      Test.startTest();
+      SavedQueryService.saveQuery(longName, longSoql, longNl, longScope);
+      Test.stopTest();
 
-    List<SOQL_Saved_Query__c> mine = SavedQueryService.listMine();
-    Assert.areEqual(
-      1,
-      mine.size(),
-      'An over-length save should still succeed after truncation.'
-    );
-    Assert.areEqual(
-      80,
-      mine[0].Name.length(),
-      'Name should be truncated to the standard 80-character text field length.'
-    );
-    Assert.areEqual(
-      5000,
-      mine[0].SOQL__c.length(),
-      'SOQL__c should be truncated to the field length (5000).'
-    );
-    Assert.areEqual(
-      1000,
-      mine[0].Natural_Language__c.length(),
-      'Natural_Language__c should be truncated to the field length (1000).'
-    );
-    Assert.areEqual(
-      1000,
-      mine[0].Object_Scope__c.length(),
-      'Object_Scope__c should be truncated to the field length (1000).'
-    );
+      List<SOQL_Saved_Query__c> mine = SavedQueryService.listMine();
+      Assert.areEqual(
+        1,
+        mine.size(),
+        'An over-length save should still succeed after truncation.'
+      );
+      Assert.areEqual(
+        80,
+        mine[0].Name.length(),
+        'Name should be truncated to the standard 80-character text field length.'
+      );
+      Assert.areEqual(
+        5000,
+        mine[0].SOQL__c.length(),
+        'SOQL__c should be truncated to the field length (5000).'
+      );
+      Assert.areEqual(
+        1000,
+        mine[0].Natural_Language__c.length(),
+        'Natural_Language__c should be truncated to the field length (1000).'
+      );
+      Assert.areEqual(
+        1000,
+        mine[0].Object_Scope__c.length(),
+        'Object_Scope__c should be truncated to the field length (1000).'
+      );
+    }
   }
 
   // --- listMine: ordering -------------------------------------------------------------------
 
   @isTest
   static void listMineOrdersByNameAscending() {
-    SavedQueryService.saveQuery(
-      'Charlie',
-      'SELECT Id FROM Account',
-      null,
-      null
-    );
-    SavedQueryService.saveQuery('Alpha', 'SELECT Id FROM Account', null, null);
-    SavedQueryService.saveQuery('Bravo', 'SELECT Id FROM Account', null, null);
+    User testUser = queryTestUser('sqsvcA');
+    System.runAs(testUser) {
+      SavedQueryService.saveQuery(
+        'Charlie',
+        'SELECT Id FROM Account',
+        null,
+        null
+      );
+      SavedQueryService.saveQuery(
+        'Alpha',
+        'SELECT Id FROM Account',
+        null,
+        null
+      );
+      SavedQueryService.saveQuery(
+        'Bravo',
+        'SELECT Id FROM Account',
+        null,
+        null
+      );
 
-    Test.startTest();
-    List<SOQL_Saved_Query__c> mine = SavedQueryService.listMine();
-    Test.stopTest();
+      Test.startTest();
+      List<SOQL_Saved_Query__c> mine = SavedQueryService.listMine();
+      Test.stopTest();
 
-    Assert.areEqual(
-      3,
-      mine.size(),
-      'All three saved queries should be returned.'
-    );
-    Assert.areEqual(
-      'Alpha',
-      mine[0].Name,
-      'listMine() should order alphabetically ascending by Name.'
-    );
-    Assert.areEqual(
-      'Bravo',
-      mine[1].Name,
-      'listMine() should order alphabetically ascending by Name.'
-    );
-    Assert.areEqual(
-      'Charlie',
-      mine[2].Name,
-      'listMine() should order alphabetically ascending by Name.'
-    );
+      Assert.areEqual(
+        3,
+        mine.size(),
+        'All three saved queries should be returned.'
+      );
+      Assert.areEqual(
+        'Alpha',
+        mine[0].Name,
+        'listMine() should order alphabetically ascending by Name.'
+      );
+      Assert.areEqual(
+        'Bravo',
+        mine[1].Name,
+        'listMine() should order alphabetically ascending by Name.'
+      );
+      Assert.areEqual(
+        'Charlie',
+        mine[2].Name,
+        'listMine() should order alphabetically ascending by Name.'
+      );
+    }
   }
 
   @isTest
   static void listMineReturnsEmptyWhenNoneSaved() {
-    Test.startTest();
-    List<SOQL_Saved_Query__c> mine = SavedQueryService.listMine();
-    Test.stopTest();
+    User testUser = queryTestUser('sqsvcA');
+    System.runAs(testUser) {
+      Test.startTest();
+      List<SOQL_Saved_Query__c> mine = SavedQueryService.listMine();
+      Test.stopTest();
 
-    Assert.isTrue(
-      mine.isEmpty(),
-      'listMine() should return an empty list when nothing is saved.'
-    );
+      Assert.isTrue(
+        mine.isEmpty(),
+        'listMine() should return an empty list when nothing is saved.'
+      );
+    }
   }
 
   // --- deleteSavedQuery -----------------------------------------------------------------------
 
   @isTest
   static void deleteSavedQueryRemovesRecord() {
-    SOQL_Saved_Query__c saved = SavedQueryService.saveQuery(
-      'To Delete',
-      'SELECT Id FROM Account',
-      null,
-      null
-    );
+    User testUser = queryTestUser('sqsvcA');
+    System.runAs(testUser) {
+      SOQL_Saved_Query__c saved = SavedQueryService.saveQuery(
+        'To Delete',
+        'SELECT Id FROM Account',
+        null,
+        null
+      );
 
-    Test.startTest();
-    SavedQueryService.deleteSavedQuery(saved.Id);
-    Test.stopTest();
+      Test.startTest();
+      SavedQueryService.deleteSavedQuery(saved.Id);
+      Test.stopTest();
 
-    Assert.isTrue(
-      SavedQueryService.listMine().isEmpty(),
-      'deleteSavedQuery() should remove the record from listMine() results.'
-    );
+      Assert.isTrue(
+        SavedQueryService.listMine().isEmpty(),
+        'deleteSavedQuery() should remove the record from listMine() results.'
+      );
+    }
   }
 
   @isTest
   static void deleteSavedQueryNullIdThrowsAuraHandledException() {
+    // Validation short-circuits before any SOQL/DML on SOQL_Saved_Query__c, so this test does
+    // not need a permission-set user.
     AuraHandledException caught;
     Test.startTest();
     try {
@@ -376,36 +416,39 @@ private class SavedQueryServiceTest {
 
   @isTest
   static void deleteSavedQueryAlreadyDeletedIdThrowsAuraHandledException() {
-    SOQL_Saved_Query__c saved = SavedQueryService.saveQuery(
-      'Gone Soon',
-      'SELECT Id FROM Account',
-      null,
-      null
-    );
-    Id vanishedId = saved.Id;
-    SavedQueryService.deleteSavedQuery(vanishedId);
-
-    AuraHandledException caught;
-    Test.startTest();
-    try {
-      // Second delete of the same, now-nonexistent Id must be rejected cleanly rather than
-      // throwing an unhandled DmlException or NPE.
+    User testUser = queryTestUser('sqsvcA');
+    System.runAs(testUser) {
+      SOQL_Saved_Query__c saved = SavedQueryService.saveQuery(
+        'Gone Soon',
+        'SELECT Id FROM Account',
+        null,
+        null
+      );
+      Id vanishedId = saved.Id;
       SavedQueryService.deleteSavedQuery(vanishedId);
-    } catch (AuraHandledException e) {
-      caught = e;
-    }
-    Test.stopTest();
 
-    Assert.isNotNull(
-      caught,
-      'Deleting a record that no longer exists (or is not visible) must throw a clear ' +
-      'AuraHandledException rather than an unhandled DML error.'
-    );
-    Assert.areEqual(
-      'That saved query no longer exists, or you do not have access to it.',
-      caught.getMessage(),
-      'The exception message should explain the record is gone or inaccessible.'
-    );
+      AuraHandledException caught;
+      Test.startTest();
+      try {
+        // Second delete of the same, now-nonexistent Id must be rejected cleanly rather than
+        // throwing an unhandled DmlException or NPE.
+        SavedQueryService.deleteSavedQuery(vanishedId);
+      } catch (AuraHandledException e) {
+        caught = e;
+      }
+      Test.stopTest();
+
+      Assert.isNotNull(
+        caught,
+        'Deleting a record that no longer exists (or is not visible) must throw a clear ' +
+        'AuraHandledException rather than an unhandled DML error.'
+      );
+      Assert.areEqual(
+        'That saved query no longer exists, or you do not have access to it.',
+        caught.getMessage(),
+        'The exception message should explain the record is gone or inaccessible.'
+      );
+    }
   }
 
   // --- private helper unit tests (@TestVisible) ------------------------------------------

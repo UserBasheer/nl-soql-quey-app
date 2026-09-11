@@ -1,5 +1,10 @@
 @isTest
 private class SoqlWhispererControllerTest {
+  // NOTE: Metadata-API-deployed custom fields on SOQL_Query_History__c / SOQL_Saved_Query__c
+  // grant FLS to nobody (this repo ships no profiles/ directory), and QueryHistoryService /
+  // SavedQueryService run everything under AccessLevel.USER_MODE / WITH USER_MODE. Any test
+  // below that touches either object (directly or via the controller/services) must run as
+  // testUser, who has the SOQL_Whisperer_User permission set assigned below.
   @TestSetup
   static void setup() {
     // generateQuery()/refineQuery() resolve a ClaudeTranslationProvider by default, which reads
@@ -7,6 +12,56 @@ private class SoqlWhispererControllerTest {
     // org-default Hierarchy custom setting record with a dummy key so that line executes
     // without a null reference. See ClaudeTranslationProviderTest for the same pattern.
     insert new AnthropicSettings__c(ApiKey__c = 'dummy-test-key');
+
+    // User + PermissionSetAssignment are setup objects; the AnthropicSettings__c insert above
+    // is a non-setup object DML already committed in this same @TestSetup transaction, so the
+    // setup-object DML below is isolated inside System.runAs(currentUser) to avoid a mixed-DML
+    // error (same technique used to isolate setup-object DML in QueryHistoryServiceTest and
+    // SavedQueryServiceTest's @TestSetup, just made explicit here because this class also has
+    // non-setup-object DML to mix with).
+    System.runAs(new User(Id = UserInfo.getUserId())) {
+      Profile standardProfile = [
+        SELECT Id
+        FROM Profile
+        WHERE Name = 'Standard User'
+        LIMIT 1
+      ];
+      User testUser = new User(
+        ProfileId = standardProfile.Id,
+        LastName = 'Test',
+        FirstName = 'swcUser',
+        Email = 'swcUser@example.com.swctest',
+        Username = 'swcUser' +
+          System.currentTimeMillis() +
+          '@example.com.swctest',
+        Alias = 'swcUser'.left(8),
+        TimeZoneSidKey = 'America/Los_Angeles',
+        LocaleSidKey = 'en_US',
+        EmailEncodingKey = 'UTF-8',
+        LanguageLocaleKey = 'en_US'
+      );
+      insert testUser;
+
+      PermissionSet whispererPermSet = [
+        SELECT Id
+        FROM PermissionSet
+        WHERE Name = 'SOQL_Whisperer_User'
+        LIMIT 1
+      ];
+      insert new PermissionSetAssignment(
+        AssigneeId = testUser.Id,
+        PermissionSetId = whispererPermSet.Id
+      );
+    }
+  }
+
+  private static User getTestUser() {
+    return [
+      SELECT Id
+      FROM User
+      WHERE FirstName = 'swcUser'
+      LIMIT 1
+    ];
   }
 
   /**
@@ -167,21 +222,24 @@ private class SoqlWhispererControllerTest {
 
   @isTest
   static void runQueryValidSelectReturnsResults() {
-    insert new Account(Name = 'SoqlWhispererController Test Account');
+    User testUser = getTestUser();
+    System.runAs(testUser) {
+      insert new Account(Name = 'SoqlWhispererController Test Account');
 
-    Test.startTest();
-    List<SObject> results = SoqlWhispererController.runQuery(
-      'SELECT Id, Name FROM Account',
-      'show me accounts',
-      new List<String>{ 'Account' }
-    );
-    Test.stopTest();
+      Test.startTest();
+      List<SObject> results = SoqlWhispererController.runQuery(
+        'SELECT Id, Name FROM Account',
+        'show me accounts',
+        new List<String>{ 'Account' }
+      );
+      Test.stopTest();
 
-    Assert.isFalse(
-      results.isEmpty(),
-      'runQuery() with a valid read-only SELECT should delegate to QueryService.runQuery() ' +
-      'and return the matching Account record(s) in USER_MODE.'
-    );
+      Assert.isFalse(
+        results.isEmpty(),
+        'runQuery() with a valid read-only SELECT should delegate to QueryService.runQuery() ' +
+        'and return the matching Account record(s) in USER_MODE.'
+      );
+    }
   }
 
   /**
@@ -192,65 +250,71 @@ private class SoqlWhispererControllerTest {
    */
   @isTest
   static void runQuerySuccessWritesSuccessHistoryRowWithRowCount() {
-    insert new Account(Name = 'History Success Account');
+    User testUser = getTestUser();
+    System.runAs(testUser) {
+      insert new Account(Name = 'History Success Account');
 
-    Test.startTest();
-    List<SObject> results = SoqlWhispererController.runQuery(
-      'SELECT Id, Name FROM Account',
-      'show me accounts',
-      new List<String>{ 'Account' }
-    );
-    Test.stopTest();
+      Test.startTest();
+      List<SObject> results = SoqlWhispererController.runQuery(
+        'SELECT Id, Name FROM Account',
+        'show me accounts',
+        new List<String>{ 'Account' }
+      );
+      Test.stopTest();
 
-    List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(5);
-    Assert.areEqual(
-      1,
-      recent.size(),
-      'A successful runQuery() call must write exactly one history row.'
-    );
-    Assert.areEqual(
-      QueryHistoryService.STATUS_SUCCESS,
-      recent[0].Status__c,
-      'The history row for a successful run must be logged with Status__c = Success.'
-    );
-    Assert.areEqual(
-      results.size(),
-      Integer.valueOf(recent[0].Row_Count__c),
-      'The history row must record the actual number of rows returned to the caller.'
-    );
-    Assert.areEqual(
-      'SELECT Id, Name FROM Account',
-      recent[0].SOQL__c,
-      'The history row must record the exact SOQL that was run.'
-    );
-    Assert.areEqual(
-      'show me accounts',
-      recent[0].Natural_Language__c,
-      'The history row must record the natural language prompt passed to runQuery().'
-    );
+      List<SOQL_Query_History__c> recent = QueryHistoryService.getRecent(5);
+      Assert.areEqual(
+        1,
+        recent.size(),
+        'A successful runQuery() call must write exactly one history row.'
+      );
+      Assert.areEqual(
+        QueryHistoryService.STATUS_SUCCESS,
+        recent[0].Status__c,
+        'The history row for a successful run must be logged with Status__c = Success.'
+      );
+      Assert.areEqual(
+        results.size(),
+        Integer.valueOf(recent[0].Row_Count__c),
+        'The history row must record the actual number of rows returned to the caller.'
+      );
+      Assert.areEqual(
+        'SELECT Id, Name FROM Account',
+        recent[0].SOQL__c,
+        'The history row must record the exact SOQL that was run.'
+      );
+      Assert.areEqual(
+        'show me accounts',
+        recent[0].Natural_Language__c,
+        'The history row must record the natural language prompt passed to runQuery().'
+      );
+    }
   }
 
   @isTest
   static void runQueryInvalidQueryThrowsQueryException() {
-    QueryService.QueryException caught;
+    User testUser = getTestUser();
+    System.runAs(testUser) {
+      QueryService.QueryException caught;
 
-    Test.startTest();
-    try {
-      SoqlWhispererController.runQuery(
-        'DELETE FROM Account',
-        'delete everything',
-        new List<String>{ 'Account' }
+      Test.startTest();
+      try {
+        SoqlWhispererController.runQuery(
+          'DELETE FROM Account',
+          'delete everything',
+          new List<String>{ 'Account' }
+        );
+      } catch (QueryService.QueryException e) {
+        caught = e;
+      }
+      Test.stopTest();
+
+      Assert.isNotNull(
+        caught,
+        'runQuery() with a non-SELECT/forbidden statement must propagate the QueryException ' +
+        'thrown by QueryService.runQuery() during validation.'
       );
-    } catch (QueryService.QueryException e) {
-      caught = e;
     }
-    Test.stopTest();
-
-    Assert.isNotNull(
-      caught,
-      'runQuery() with a non-SELECT/forbidden statement must propagate the QueryException ' +
-      'thrown by QueryService.runQuery() during validation.'
-    );
   }
 
   /**
@@ -283,108 +347,124 @@ private class SoqlWhispererControllerTest {
    */
   @isTest
   static void runQueryFailurePropagatesOriginalException() {
-    QueryService.QueryException caught;
+    User testUser = getTestUser();
+    System.runAs(testUser) {
+      QueryService.QueryException caught;
 
-    Test.startTest();
-    try {
-      SoqlWhispererController.runQuery(
-        'DELETE FROM Account',
-        'delete everything',
-        new List<String>{ 'Account' }
+      Test.startTest();
+      try {
+        SoqlWhispererController.runQuery(
+          'DELETE FROM Account',
+          'delete everything',
+          new List<String>{ 'Account' }
+        );
+        Assert.fail(
+          'runQuery() should have thrown for a non-SELECT statement.'
+        );
+      } catch (QueryService.QueryException e) {
+        caught = e;
+      }
+      Test.stopTest();
+
+      Assert.isNotNull(
+        caught,
+        'The original QueryException must still propagate to the caller on a failed run — ' +
+        'logging a failure must never swallow or replace the thrown exception.'
       );
-      Assert.fail('runQuery() should have thrown for a non-SELECT statement.');
-    } catch (QueryService.QueryException e) {
-      caught = e;
     }
-    Test.stopTest();
-
-    Assert.isNotNull(
-      caught,
-      'The original QueryException must still propagate to the caller on a failed run — ' +
-      'logging a failure must never swallow or replace the thrown exception.'
-    );
   }
 
   // --- Thin passthroughs: history -----------------------------------------------------------
 
   @isTest
   static void getHistoryDelegatesToQueryHistoryServiceGetRecent() {
-    QueryHistoryService.logRun(
-      'SELECT Id FROM Account',
-      null,
-      null,
-      1,
-      'Success',
-      null
-    );
+    User testUser = getTestUser();
+    System.runAs(testUser) {
+      QueryHistoryService.logRun(
+        'SELECT Id FROM Account',
+        null,
+        null,
+        1,
+        'Success',
+        null
+      );
 
-    Test.startTest();
-    List<SOQL_Query_History__c> history = SoqlWhispererController.getHistory(5);
-    Test.stopTest();
+      Test.startTest();
+      List<SOQL_Query_History__c> history = SoqlWhispererController.getHistory(
+        5
+      );
+      Test.stopTest();
 
-    Assert.areEqual(
-      1,
-      history.size(),
-      'getHistory() should delegate to QueryHistoryService.getRecent() and return the logged row.'
-    );
+      Assert.areEqual(
+        1,
+        history.size(),
+        'getHistory() should delegate to QueryHistoryService.getRecent() and return the logged row.'
+      );
+    }
   }
 
   @isTest
   static void clearHistoryDelegatesToQueryHistoryServiceClearMine() {
-    QueryHistoryService.logRun(
-      'SELECT Id FROM Account',
-      null,
-      null,
-      1,
-      'Success',
-      null
-    );
-    QueryHistoryService.logRun(
-      'SELECT Id FROM Contact',
-      null,
-      null,
-      1,
-      'Success',
-      null
-    );
+    User testUser = getTestUser();
+    System.runAs(testUser) {
+      QueryHistoryService.logRun(
+        'SELECT Id FROM Account',
+        null,
+        null,
+        1,
+        'Success',
+        null
+      );
+      QueryHistoryService.logRun(
+        'SELECT Id FROM Contact',
+        null,
+        null,
+        1,
+        'Success',
+        null
+      );
 
-    Test.startTest();
-    Integer deletedCount = SoqlWhispererController.clearHistory();
-    Test.stopTest();
+      Test.startTest();
+      Integer deletedCount = SoqlWhispererController.clearHistory();
+      Test.stopTest();
 
-    Assert.areEqual(
-      2,
-      deletedCount,
-      'clearHistory() should delegate to QueryHistoryService.clearMine() and return the count deleted.'
-    );
-    Assert.isTrue(
-      SoqlWhispererController.getHistory(50).isEmpty(),
-      'After clearHistory(), no history rows should remain for the running user.'
-    );
+      Assert.areEqual(
+        2,
+        deletedCount,
+        'clearHistory() should delegate to QueryHistoryService.clearMine() and return the count deleted.'
+      );
+      Assert.isTrue(
+        SoqlWhispererController.getHistory(50).isEmpty(),
+        'After clearHistory(), no history rows should remain for the running user.'
+      );
+    }
   }
 
   // --- Thin passthroughs: saved queries ------------------------------------------------------
 
   @isTest
   static void saveQueryDelegatesToSavedQueryService() {
-    Test.startTest();
-    SOQL_Saved_Query__c saved = SoqlWhispererController.saveQuery(
-      'Controller Saved',
-      'SELECT Id FROM Account',
-      'list accounts',
-      new List<String>{ 'Account' }
-    );
-    Test.stopTest();
+    User testUser = getTestUser();
+    System.runAs(testUser) {
+      Test.startTest();
+      SOQL_Saved_Query__c saved = SoqlWhispererController.saveQuery(
+        'Controller Saved',
+        'SELECT Id FROM Account',
+        'list accounts',
+        new List<String>{ 'Account' }
+      );
+      Test.stopTest();
 
-    Assert.isNotNull(
-      saved.Id,
-      'saveQuery() should delegate to SavedQueryService.saveQuery() and persist a record.'
-    );
-    Assert.areEqual(
-      1,
-      SoqlWhispererController.getSavedQueries().size(),
-      'getSavedQueries() should reflect the record just saved through the controller.'
-    );
+      Assert.isNotNull(
+        saved.Id,
+        'saveQuery() should delegate to SavedQueryService.saveQuery() and persist a record.'
+      );
+      Assert.areEqual(
+        1,
+        SoqlWhispererController.getSavedQueries().size(),
+        'getSavedQueries() should reflect the record just saved through the controller.'
+      );
+    }
   }
 
   @isTest
@@ -407,51 +487,57 @@ private class SoqlWhispererControllerTest {
 
   @isTest
   static void getSavedQueriesDelegatesToSavedQueryServiceListMine() {
-    SoqlWhispererController.saveQuery(
-      'Alpha',
-      'SELECT Id FROM Account',
-      null,
-      null
-    );
-    SoqlWhispererController.saveQuery(
-      'Bravo',
-      'SELECT Id FROM Contact',
-      null,
-      null
-    );
+    User testUser = getTestUser();
+    System.runAs(testUser) {
+      SoqlWhispererController.saveQuery(
+        'Alpha',
+        'SELECT Id FROM Account',
+        null,
+        null
+      );
+      SoqlWhispererController.saveQuery(
+        'Bravo',
+        'SELECT Id FROM Contact',
+        null,
+        null
+      );
 
-    Test.startTest();
-    List<SOQL_Saved_Query__c> saved = SoqlWhispererController.getSavedQueries();
-    Test.stopTest();
+      Test.startTest();
+      List<SOQL_Saved_Query__c> saved = SoqlWhispererController.getSavedQueries();
+      Test.stopTest();
 
-    Assert.areEqual(
-      2,
-      saved.size(),
-      'getSavedQueries() should delegate to SavedQueryService.listMine() and return all saved queries.'
-    );
-    Assert.areEqual(
-      'Alpha',
-      saved[0].Name,
-      'getSavedQueries() should preserve the Name-ascending ordering from listMine().'
-    );
+      Assert.areEqual(
+        2,
+        saved.size(),
+        'getSavedQueries() should delegate to SavedQueryService.listMine() and return all saved queries.'
+      );
+      Assert.areEqual(
+        'Alpha',
+        saved[0].Name,
+        'getSavedQueries() should preserve the Name-ascending ordering from listMine().'
+      );
+    }
   }
 
   @isTest
   static void deleteSavedQueryDelegatesToSavedQueryService() {
-    SOQL_Saved_Query__c saved = SoqlWhispererController.saveQuery(
-      'To Remove',
-      'SELECT Id FROM Account',
-      null,
-      null
-    );
+    User testUser = getTestUser();
+    System.runAs(testUser) {
+      SOQL_Saved_Query__c saved = SoqlWhispererController.saveQuery(
+        'To Remove',
+        'SELECT Id FROM Account',
+        null,
+        null
+      );
 
-    Test.startTest();
-    SoqlWhispererController.deleteSavedQuery(saved.Id);
-    Test.stopTest();
+      Test.startTest();
+      SoqlWhispererController.deleteSavedQuery(saved.Id);
+      Test.stopTest();
 
-    Assert.isTrue(
-      SoqlWhispererController.getSavedQueries().isEmpty(),
-      'deleteSavedQuery() should delegate to SavedQueryService.deleteSavedQuery() and remove the record.'
-    );
+      Assert.isTrue(
+        SoqlWhispererController.getSavedQueries().isEmpty(),
+        'deleteSavedQuery() should delegate to SavedQueryService.deleteSavedQuery() and remove the record.'
+      );
+    }
   }
 }
