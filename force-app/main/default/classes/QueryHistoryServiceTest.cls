@@ -16,7 +16,10 @@ private class QueryHistoryServiceTest {
     ];
     User userA = buildTestUser(standardProfile.Id, 'qhsvcA');
     User userB = buildTestUser(standardProfile.Id, 'qhsvcB');
-    insert new List<User>{ userA, userB };
+    // userC deliberately gets NO PermissionSetAssignment below — it exists to prove the
+    // "user missing SOQL_Whisperer_User" swallow path in logRunSwallowsInsertFailureAndDoesNotThrow.
+    User userC = buildTestUser(standardProfile.Id, 'qhsvcC');
+    insert new List<User>{ userA, userB, userC };
 
     PermissionSet whispererPermSet = [
       SELECT Id
@@ -164,11 +167,26 @@ private class QueryHistoryServiceTest {
   }
 
   /**
-   * SWALLOW CONTRACT: SOQL__c is a required field on SOQL_Query_History__c. Passing a blank
-   * soql means truncate() returns null, so the insert fails DML validation ("required field
-   * missing") for a completely realistic reason (no permission trickery needed). logRun()
-   * must swallow that failure silently: the call below must return normally (an uncaught
-   * exception here would fail this test method), and no history row must have been written.
+   * SWALLOW CONTRACT: this is the real production failure mode the swallow exists for — a
+   * user who does NOT have the SOQL_Whisperer_User permission set assigned (userC, built in
+   * @TestSetup with no PermissionSetAssignment). Metadata-API-deployed custom fields on
+   * SOQL_Query_History__c grant FLS to nobody by default (this repo ships no profiles/
+   * directory), and logRun() inserts under AccessLevel.USER_MODE, so as userC the
+   * Database.insert(entry, AccessLevel.USER_MODE) call fails FLS validation. logRun() must
+   * swallow that failure silently: the call below must return normally (an uncaught exception
+   * here would fail this test method, since there is deliberately no try/catch), and no
+   * history row must exist anywhere afterward — "a user missing the permission set still gets
+   * their query results, the history panel just stays empty."
+   *
+   * The before/after row count is taken via a plain SOQL COUNT() outside any System.runAs
+   * block and outside any `with sharing` context (this test class declares no sharing
+   * keyword, so it defaults to system mode: no FLS and no sharing enforcement). That is
+   * deliberate: getRecent() itself queries WITH USER_MODE and is scoped by OWD Private +
+   * `with sharing`, so calling it as userC would throw (no read access) rather than prove
+   * anything, and calling it as userA/userB would only prove those users' OWN visibility —
+   * OWD Private means they can never see a row owned by userC regardless of whether the
+   * insert had succeeded. A system-mode, org-wide COUNT() is the only way to confirm zero
+   * rows were actually written, independent of who could or couldn't read them back.
    *
    * NOTE: this test calls logRun() directly and lets it swallow its own failure — it says
    * nothing about the separate transaction-rollback issue in
@@ -179,15 +197,16 @@ private class QueryHistoryServiceTest {
    */
   @isTest
   static void logRunSwallowsInsertFailureAndDoesNotThrow() {
-    User testUser = queryTestUser('qhsvcA');
-    System.runAs(testUser) {
-      Integer countBefore = QueryHistoryService.getRecent(200).size();
+    User testUserWithoutPermSet = queryTestUser('qhsvcC');
+    Integer countBefore = [SELECT COUNT() FROM SOQL_Query_History__c];
 
+    System.runAs(testUserWithoutPermSet) {
       Test.startTest();
-      // Blank soql -> truncate() returns null -> required-field DML failure inside logRun(),
-      // caught and swallowed. No try/catch here: a rethrow would fail this test.
+      // testUserWithoutPermSet lacks SOQL_Whisperer_User -> no FLS on SOQL_Query_History__c
+      // fields -> the USER_MODE insert inside logRun() fails -> caught and swallowed.
+      // No try/catch here: a rethrow would fail this test.
       QueryHistoryService.logRun(
-        null,
+        'SELECT Id FROM Account',
         'irrelevant',
         new List<String>{ 'Account' },
         0,
@@ -195,15 +214,16 @@ private class QueryHistoryServiceTest {
         'boom'
       );
       Test.stopTest();
-
-      Integer countAfter = QueryHistoryService.getRecent(200).size();
-      Assert.areEqual(
-        countBefore,
-        countAfter,
-        'logRun() must swallow a DML failure (missing required SOQL__c) without inserting a ' +
-        'row and without throwing to the caller.'
-      );
     }
+
+    Integer countAfter = [SELECT COUNT() FROM SOQL_Query_History__c];
+    Assert.areEqual(
+      countBefore,
+      countAfter,
+      'logRun() must swallow the USER_MODE FLS failure for a user missing the ' +
+        'SOQL_Whisperer_User permission set, without inserting a row and without throwing to ' +
+        'the caller.'
+    );
   }
 
   @isTest
