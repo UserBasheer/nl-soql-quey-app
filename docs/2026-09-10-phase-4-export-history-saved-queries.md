@@ -1,6 +1,7 @@
 # Phase 4 — Result Export, Query History, Saved Queries
 
-**Date:** 2026-09-10 (metadata corrected 2026-09-11, see "Post-merge metadata corrections" below)
+**Date:** 2026-09-10 (metadata corrected 2026-09-11, see "Post-merge metadata corrections" below;
+test suite corrected 2026-09-11, see "Post-merge test corrections" below)
 **Status:** Completed (code review APPROVED, no warnings) — awaiting PR merge + devops deploy
 **Branch:** feature/2026-09-10-export-history-saved-queries (off `main` @ 53b997a, PR #4 merged)
 
@@ -420,11 +421,79 @@ The "Security" and "Deployment / setup" sections above, and the affected rows in
 created", have been updated in place to reflect these three fixes rather than the pre-fix
 metadata.
 
+### Round 2 — first real scratch-org deploy attempt (2026-09-11, commit `0539c4f`)
+
+The `a2c6ccd` fix above was validated in a scratch org for the first time and still failed
+deploy, with a generic `An unexpected error occurred. Please include this ErrorId...` on both
+Phase 4 page layouts. Bisected the layout XML in the scratch org: the cause was an empty
+self-closing `<summaryLayout />` element at the end of both layout files — the same defect
+family as the empty `<layoutColumns />` fixed in `a2c6ccd` and previously in PR #6 (empty
+self-closing elements the Metadata API's XML parser rejects unpredictably rather than with a
+clear validation message). The line was removed from both files with no other change; removing
+it lets the platform fall back to its own default compact/summary layout. Code review
+re-**APPROVED**, no warnings (see "Prior review" round in `agent-output/review-verdict.md`).
+
+---
+
+## Post-merge test corrections (2026-09-11)
+
+The same scratch-org validation pass that surfaced the layout defect above also ran the full
+Apex test suite for the first time against a real scratch org (all prior test runs had been in
+the design/dev sandbox where the running user was already a full admin with implicit access).
+**22 of 91 Apex tests failed** with errors like `No such column 'SOQL__c'` and "field ... is not
+accessible" against both `SOQL_Query_History__c` and `SOQL_Saved_Query__c`.
+
+**Root cause:** custom fields deployed via the Metadata API grant Field-Level Security to
+**nobody** by default, including System Administrator — this repo has no `profiles/` directory,
+so there is no profile metadata granting FLS on deploy. `QueryHistoryService` and
+`SavedQueryService` deliberately enforce `AccessLevel.USER_MODE` (SOQL `WITH USER_MODE`, DML
+`AccessLevel.USER_MODE`) rather than system mode, per the project's permission-aware hard
+constraint. A scratch-org test running in the default admin context — with no permission set
+assigned — therefore has zero FLS on either object's fields, and `USER_MODE` correctly rejects
+the access. This was never a service-code bug; it is exactly what `USER_MODE` is supposed to do
+when the running identity is under-permissioned, and it had simply never been exercised by a
+real scratch-org test run before now.
+
+**Fix (commit `ce2b312`, salesforce-unit-testing, no production code changed):** every test
+method that touches `SOQL_Query_History__c` or `SOQL_Saved_Query__c` — directly or via
+`QueryHistoryService`/`SavedQueryService`/`SoqlWhispererController` — now runs inside
+`System.runAs(<a user with the SOQL_Whisperer_User permission set assigned>)`, reusing the same
+test-user factory pattern already established by the pre-existing two-user isolation tests. 26
+methods were wrapped across `QueryHistoryServiceTest`, `SavedQueryServiceTest`, and
+`SoqlWhispererControllerTest`. Methods that never reach SOQL/DML against either object (pure
+`@TestVisible` helper tests, and tests that throw on blank-input validation before any query
+runs) were correctly left unwrapped. No assertion was weakened or removed — each wrapped test
+still asserts exactly what its unwrapped predecessor asserted; only the running identity
+changed. Mixed-DML in `SoqlWhispererControllerTest`'s `@TestSetup` (a non-setup custom-setting
+insert alongside setup-object `User`/`PermissionSetAssignment` inserts) is handled by isolating
+just the two setup-object inserts inside `System.runAs(new User(Id = UserInfo.getUserId()))`,
+the standard pattern for avoiding `MIXED_DML_OPERATION`. The three pre-existing two-user
+`System.runAs` isolation tests (proving cross-user read/delete isolation) were already passing
+and are unchanged — they remain the security proof that `USER_MODE` + OWD Private isolation
+works; this fix only extends the same pattern to every other test that touches these objects.
+Code review re-**APPROVED**, no warnings (see `agent-output/review-verdict.md`, "scratch-org
+validation round 2").
+
+> **Testing gotcha for future maintainers — read this before adding a new test.**
+> Any Apex test that reads or writes `SOQL_Query_History__c` or `SOQL_Saved_Query__c` — whether
+> directly or indirectly through `QueryHistoryService`, `SavedQueryService`, or
+> `SoqlWhispererController` — **must** run inside `System.runAs()` as a user who has the
+> `SOQL_Whisperer_User` permission set assigned. This repo has no `profiles/` directory, so
+> Metadata-API-deployed custom fields have no FLS for **any** user, including the default
+> System Administrator test context, and both services enforce field/object access via
+> `AccessLevel.USER_MODE` rather than system mode. A test written against these objects without
+> `System.runAs(<permission-set user>)` will pass in a design/dev sandbox where the running user
+> already has broad implicit access, but will fail in a real scratch org with `No such column`
+> or "field is not accessible" errors. See the existing `buildTestUser`/permission-set-assignment
+> helper pattern already present in `QueryHistoryServiceTest`, `SavedQueryServiceTest`, and
+> `SoqlWhispererControllerTest` and reuse it rather than re-deriving it.
+
 ---
 
 ## Change history
 
-| Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-09-10 | Initial creation — Phase 4 (result export, query history, saved queries). Two new custom objects + layouts + custom permission + permission set (admin), `QueryHistoryService`/`SavedQueryService`/controller changes + LWC export/saved-query/history UI + two design pattern docs (developer), full Apex + Jest test suites including two-user `System.runAs` isolation tests (unit testing), code review APPROVED with no warnings outstanding.                                                                                      |
-| 2026-09-11 | Post-merge metadata fix (scratch-org deploy validation failure) — `required=false` on both `SOQL__c` fields, removed a trailing empty `<layoutColumns />` from both Phase 4 layouts, `allowEdit=true` on `SOQL_Query_History__c` in `SOQL_Whisperer_User` (platform-required for `clearMine()`'s delete). 5 files, metadata-only, no Apex/LWC changed. Code review re-APPROVED, no warnings. History-row immutability is now enforced by convention (no update path in code), not by FLS — see "Post-merge metadata corrections" above. |
+| Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-09-10 | Initial creation — Phase 4 (result export, query history, saved queries). Two new custom objects + layouts + custom permission + permission set (admin), `QueryHistoryService`/`SavedQueryService`/controller changes + LWC export/saved-query/history UI + two design pattern docs (developer), full Apex + Jest test suites including two-user `System.runAs` isolation tests (unit testing), code review APPROVED with no warnings outstanding.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 2026-09-11 | Post-merge metadata fix (scratch-org deploy validation failure) — `required=false` on both `SOQL__c` fields, removed a trailing empty `<layoutColumns />` from both Phase 4 layouts, `allowEdit=true` on `SOQL_Query_History__c` in `SOQL_Whisperer_User` (platform-required for `clearMine()`'s delete). 5 files, metadata-only, no Apex/LWC changed. Code review re-APPROVED, no warnings. History-row immutability is now enforced by convention (no update path in code), not by FLS — see "Post-merge metadata corrections" above.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 2026-09-11 | Round 2 scratch-org validation, two fixes on branch `feature/2026-09-11-phase4-layout-and-test-fls-fix`: (1) removed an empty `<summaryLayout />` from both Phase 4 layouts, same defect family as the `<layoutColumns />` fix above, which was still breaking scratch-org deploy (commit `0539c4f`, admin). (2) 22/91 Apex tests failed on the first real scratch-org test run because metadata-deployed custom fields grant FLS to nobody and both services enforce `USER_MODE` — fixed by wrapping every test that touches `SOQL_Query_History__c`/`SOQL_Saved_Query__c` in `System.runAs(<SOQL_Whisperer_User user>)`, 26 methods across three test classes, zero assertions weakened, zero production code changed (commit `ce2b312`, unit testing). Code review re-APPROVED, no warnings. See "Post-merge metadata corrections" (Round 2) and "Post-merge test corrections" above — the latter states a durable testing rule for all future tests against these two objects. |
