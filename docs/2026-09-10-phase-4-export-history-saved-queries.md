@@ -1,7 +1,7 @@
 # Phase 4 — Result Export, Query History, Saved Queries
 
 **Date:** 2026-09-10 (metadata corrected 2026-09-11, see "Post-merge metadata corrections" below;
-test suite corrected 2026-09-11, see "Post-merge test corrections" below)
+test suite corrected 2026-09-11 and again 2026-09-16, see "Post-merge test corrections" below)
 **Status:** Completed (code review APPROVED, no warnings) — awaiting PR merge + devops deploy
 **Branch:** feature/2026-09-10-export-history-saved-queries (off `main` @ 53b997a, PR #4 merged)
 
@@ -487,6 +487,36 @@ validation round 2").
 > or "field is not accessible" errors. See the existing `buildTestUser`/permission-set-assignment
 > helper pattern already present in `QueryHistoryServiceTest`, `SavedQueryServiceTest`, and
 > `SoqlWhispererControllerTest` and reuse it rather than re-deriving it.
+>
+> **Related gotcha — relaxing a field constraint can silently stale a _different_ test's
+> failure-forcing mechanism.** When PR #6 made `SOQL_Query_History__c.SOQL__c` nullable (the
+> platform forbids `required=true` on a `LongTextArea`), it didn't just fix the deploy error — it
+> also broke the forcing mechanism `logRunSwallowsInsertFailureAndDoesNotThrow` depended on (a
+> blank required field triggering a DML validation failure to force `logRun`'s catch block to
+> run). The test kept "passing" for the wrong reason — masked by the unrelated FLS failures until
+> PR #7 fixed those — and its real assertion was never reached until Round 2 below. **When
+> changing field metadata (especially `required`, `unique`, or `length`), grep the corresponding
+> test class for how it forces a failure path before assuming existing tests are still meaningful.**
+
+### Round 2 — swallow-test forcing mechanism gone stale (2026-09-16, commit `0c70d2a`)
+
+After PR #7 fixed the FLS `runAs` wrapping above, the Phase 4 scratch-org suite went to 90/91 —
+the one remaining failure was `logRunSwallowsInsertFailureAndDoesNotThrow`. Its forcing
+mechanism (insert a record with a blank/null `SOQL__c` to trip a required-field DML validation
+failure) went stale when PR #6 made `SOQL__c` nullable; it had simply been hidden behind the
+22 FLS failures until those were fixed and this test's own assertion was reached for the first
+time. **Fix:** the test now runs `QueryHistoryService.logRun(...)` inside `System.runAs` as a
+third test user, `userC`, who is deliberately built via the existing `buildTestUser` helper but
+excluded from the `SOQL_Whisperer_User` `PermissionSetAssignment` insert in `@TestSetup` — so the
+`AccessLevel.USER_MODE` insert inside `logRun` fails on FLS, the real production scenario the
+swallow contract exists for, rather than a required-field validation error. Row count
+(`[SELECT COUNT() FROM SOQL_Query_History__c]`) is checked before and after in the test's own
+top-level (system-mode) context, outside `System.runAs`, so a stray inserted row can't hide
+behind OWD Private the way a per-user `getRecent()` read would. `QueryHistoryService.logRun`'s
+`catch` block is genuinely exercised by this test for the first time since the field's
+`required` flag was relaxed. Branch `feature/2026-09-16-fix-logrun-swallow-test`, one file
+changed (`QueryHistoryServiceTest.cls`), no production code touched. Code review re-**APPROVED**,
+no warnings (see `agent-output/review-verdict.md`, top report).
 
 ---
 
@@ -497,3 +527,4 @@ validation round 2").
 | 2026-09-10 | Initial creation — Phase 4 (result export, query history, saved queries). Two new custom objects + layouts + custom permission + permission set (admin), `QueryHistoryService`/`SavedQueryService`/controller changes + LWC export/saved-query/history UI + two design pattern docs (developer), full Apex + Jest test suites including two-user `System.runAs` isolation tests (unit testing), code review APPROVED with no warnings outstanding.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | 2026-09-11 | Post-merge metadata fix (scratch-org deploy validation failure) — `required=false` on both `SOQL__c` fields, removed a trailing empty `<layoutColumns />` from both Phase 4 layouts, `allowEdit=true` on `SOQL_Query_History__c` in `SOQL_Whisperer_User` (platform-required for `clearMine()`'s delete). 5 files, metadata-only, no Apex/LWC changed. Code review re-APPROVED, no warnings. History-row immutability is now enforced by convention (no update path in code), not by FLS — see "Post-merge metadata corrections" above.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | 2026-09-11 | Round 2 scratch-org validation, two fixes on branch `feature/2026-09-11-phase4-layout-and-test-fls-fix`: (1) removed an empty `<summaryLayout />` from both Phase 4 layouts, same defect family as the `<layoutColumns />` fix above, which was still breaking scratch-org deploy (commit `0539c4f`, admin). (2) 22/91 Apex tests failed on the first real scratch-org test run because metadata-deployed custom fields grant FLS to nobody and both services enforce `USER_MODE` — fixed by wrapping every test that touches `SOQL_Query_History__c`/`SOQL_Saved_Query__c` in `System.runAs(<SOQL_Whisperer_User user>)`, 26 methods across three test classes, zero assertions weakened, zero production code changed (commit `ce2b312`, unit testing). Code review re-APPROVED, no warnings. See "Post-merge metadata corrections" (Round 2) and "Post-merge test corrections" above — the latter states a durable testing rule for all future tests against these two objects. |
+| 2026-09-16 | Round 2 test fix on branch `feature/2026-09-16-fix-logrun-swallow-test` — `logRunSwallowsInsertFailureAndDoesNotThrow` was the one remaining failure at 90/91 after PR #7; its required-field-DML forcing mechanism had gone stale when PR #6 made `SOQL__c` nullable, masked until then by the FLS failures above. Fixed by running `logRun` as a new `userC` deliberately excluded from the `SOQL_Whisperer_User` permission set, so the swallow contract is now exercised via the real FLS/`USER_MODE` denial path instead of an obsolete required-field error; row count checked before/after via a system-mode `COUNT()` outside `runAs`. One file (`QueryHistoryServiceTest.cls`), no production code changed (commit `0c70d2a`, unit testing). Code review re-APPROVED, no warnings. See "Post-merge test corrections — Round 2" above.                                                                                                                                     |
